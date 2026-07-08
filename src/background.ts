@@ -25,6 +25,7 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
   }
   const tabId = tab.id;
   await chrome.action.setBadgeText({ tabId, text: '…' });
+  await showStatus(tabId, 'working', 'Clipping this page…');
   try {
     const clip = await extractClip(tabId);
     const bytes = new TextEncoder().encode(JSON.stringify(clip)).length;
@@ -35,13 +36,15 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
       );
     }
     await chrome.storage.session.set({ [STORAGE_KEY_PENDING_CLIP]: clip });
+    await showStatus(tabId, 'done', 'Clipped — opening AskFutures…');
     await openOrFocusAnalyzeTab();
     await chrome.action.setBadgeText({ tabId, text: '' });
   } catch (err) {
     await chrome.action.setBadgeText({ tabId, text: '!' });
     console.error('[askfutures-clipper]', err);
-    await showToast(
+    await showStatus(
       tabId,
+      'error',
       err instanceof Error ? err.message : 'Clipping failed.',
     );
   }
@@ -117,12 +120,16 @@ function senderOrigin(sender: chrome.runtime.MessageSender): string | null {
   return sender.url ? new URL(sender.url).origin : null;
 }
 
-async function showToast(tabId: number, message: string): Promise<void> {
+async function showStatus(
+  tabId: number,
+  state: 'working' | 'done' | 'error',
+  message: string,
+): Promise<void> {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      func: renderToast,
-      args: [message],
+      func: renderStatusWidget,
+      args: [state, message],
     });
   } catch {
     // Tab is gone or not injectable; the badge and console already carry the error.
@@ -130,25 +137,65 @@ async function showToast(tabId: number, message: string): Promise<void> {
 }
 
 // Serialized and executed in the tab (isolated world) — must be self-contained.
-function renderToast(message: string): void {
-  const id = 'askfutures-clipper-toast';
-  document.getElementById(id)?.remove();
-  const toast = document.createElement('div');
-  toast.id = id;
-  toast.textContent = `AskFutures Clipper: ${message}`;
-  toast.style.cssText = [
-    'position:fixed',
-    'top:16px',
-    'right:16px',
-    'z-index:2147483647',
-    'max-width:360px',
-    'padding:12px 16px',
-    'background:#111827',
-    'color:#f9fafb',
-    'font:13px/1.4 system-ui,sans-serif',
-    'border-radius:8px',
-    'box-shadow:0 4px 12px rgba(0,0,0,.35)',
-  ].join(';');
-  document.documentElement.appendChild(toast);
-  setTimeout(() => toast.remove(), 8000);
+// A small overlay card (shadow DOM, so page styles can't touch it) with a
+// spinning compass mark while extraction runs, then a success/error state that
+// removes itself. Re-invocations update the existing widget in place.
+function renderStatusWidget(
+  state: 'working' | 'done' | 'error',
+  message: string,
+): void {
+  const HOST_ID = 'askfutures-clipper-status';
+  const w = window as Window & { __askfuturesStatusTimers?: number[] };
+  for (const t of w.__askfuturesStatusTimers ?? []) clearTimeout(t);
+  w.__askfuturesStatusTimers = [];
+  const setTimer = (fn: () => void, ms: number) =>
+    w.__askfuturesStatusTimers!.push(window.setTimeout(fn, ms));
+
+  let host = document.getElementById(HOST_ID);
+  if (!host) {
+    host = document.createElement('div');
+    host.id = HOST_ID;
+    host.style.cssText =
+      'position:fixed;top:16px;right:16px;z-index:2147483647';
+    host.attachShadow({ mode: 'open' });
+    document.documentElement.appendChild(host);
+  }
+  const shadow = host.shadowRoot!;
+  // The compass mark from the extension icon, as inline SVG.
+  const mark =
+    '<svg viewBox="0 0 100 100" class="mark" part="mark">' +
+    '<path fill="#3b82f6" d="M50 2 58 42 50 50 42 42Z M98 50 58 58 50 50 58 42Z M50 98 42 58 50 50 58 58Z M2 50 42 42 50 50 42 58Z"/>' +
+    '<circle cx="50" cy="50" r="9" fill="none" stroke="#0d1b2a" stroke-width="5"/>' +
+    '</svg>';
+  const icon =
+    state === 'working' ? mark : state === 'done' ? '✓' : '✕';
+  shadow.innerHTML =
+    '<style>' +
+    '.card{display:flex;align-items:center;gap:10px;max-width:360px;padding:12px 16px;' +
+    'background:#0d1b2a;color:#f9fafb;font:13px/1.4 system-ui,sans-serif;' +
+    'border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08)}' +
+    '.icon{flex:none;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-weight:700}' +
+    '.icon.done{color:#34d399}.icon.error{color:#f87171}' +
+    '.mark{width:20px;height:20px;animation:spin 1.6s linear infinite}' +
+    '@keyframes spin{to{transform:rotate(360deg)}}' +
+    '.text b{display:block;font-weight:600}.text small{color:#9ca3af}' +
+    '</style>' +
+    `<div class="card"><span class="icon ${state}">${icon}</span>` +
+    `<span class="text"><b></b><small hidden></small></span></div>`;
+  shadow.querySelector('b')!.textContent =
+    state === 'error' ? `AskFutures Clipper: ${message}` : message;
+
+  if (state === 'working') {
+    // Long extractions (YouTube transcript fetches) deserve a hint that
+    // nothing is stuck.
+    setTimer(() => {
+      const small = shadow.querySelector('small');
+      if (small) {
+        small.hidden = false;
+        small.textContent = 'Still working — transcripts can take a few seconds…';
+      }
+    }, 5000);
+  } else {
+    setTimer(() => host.remove(), state === 'done' ? 2500 : 8000);
+  }
 }

@@ -9,15 +9,9 @@ The extension hands clips to `https://askfutures.com/analyze` over
 Message flow (all messages posted to the same window):
 
 ```
-page       → { type: "askfutures-analyze-ready", nonce: "<uuid>" }
-extension  → { type: "askfutures-clip", nonce: "<echoed>", clip: { …payload } }
+page       → { type: "askfutures-analyze-ready" }
+extension  → { type: "askfutures-clip", nonce: "<uuid>", payload: { … } }
 page       → { type: "askfutures-clip-ack", nonce: "<echoed>" }
-```
-
-Plus one optional kick-off message:
-
-```
-extension  → { type: "askfutures-clip-query" }
 ```
 
 Rules:
@@ -25,14 +19,16 @@ Rules:
 - **Origin-checked both ways.** Each side ignores any message where
   `event.origin` is not `https://askfutures.com` or `event.source` is not the
   page's own `window`.
-- **Nonce.** The page generates a fresh nonce in every
-  `askfutures-analyze-ready` announcement. The extension echoes it in
-  `askfutures-clip`, and only accepts an `askfutures-clip-ack` carrying the
-  same nonce. The page ignores clips whose nonce it did not issue.
 - **Announce and re-announce.** The page posts `askfutures-analyze-ready` when
-  it is ready to receive, and re-announces (with a fresh nonce) whenever it
-  receives `askfutures-clip-query`. The extension sends that query only when it
-  actually has a clip buffered, covering whichever side loads last.
+  its listener is ready and repeats it every second until a clip lands. The
+  extension delivers whenever an announcement arrives while a clip is
+  buffered, so whichever side loads last, the handshake still completes.
+- **Nonce.** The extension generates a fresh nonce for every clip message. The
+  page acks every clip it accepts by echoing that nonce, and the extension
+  clears its buffer only on an ack whose nonce it actually sent — a forged or
+  stale ack cannot discard an undelivered clip.
+- **Validation.** The page validates every payload field strictly and ignores
+  anything malformed (it never throws at the sender).
 - **Buffering.** The clip lives in `chrome.storage.session` (memory-backed,
   never written to disk, cleared on browser exit) until a valid ack arrives.
   A sign-in redirect or slow load on the askfutures side just restarts the

@@ -1,0 +1,113 @@
+# Publish a tagged release to the Chrome Web Store and Edge Add-ons.
+#
+# Trigger: push a tag `v<version>` matching the version in src/manifest.json
+# (e.g. `git tag v0.2.1 && git push origin v0.2.1`). Both stores then review
+# the submission; approval publishes automatically.
+#
+# Requires repo secrets (see store/PUBLISHING.md for how to create them):
+#   CWS_EXTENSION_ID, CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN
+#   EDGE_PRODUCT_ID, EDGE_CLIENT_ID, EDGE_API_KEY
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+
+      - name: Check tag matches manifest version
+        run: |
+          MANIFEST_VERSION=$(node -p "require('./src/manifest.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match manifest version $MANIFEST_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Package
+        run: npm run package
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: askfutures-clipper
+          path: askfutures-clipper.zip
+
+      - name: Publish to Chrome Web Store
+        env:
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        run: |
+          ACCESS_TOKEN=$(curl -sf -X POST https://oauth2.googleapis.com/token \
+            -d client_id="$CLIENT_ID" \
+            -d client_secret="$CLIENT_SECRET" \
+            -d refresh_token="$REFRESH_TOKEN" \
+            -d grant_type=refresh_token | jq -re .access_token)
+
+          UPLOAD=$(curl -sf -X PUT \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "x-goog-api-version: 2" \
+            -T askfutures-clipper.zip \
+            "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$EXTENSION_ID")
+          echo "$UPLOAD"
+          echo "$UPLOAD" | jq -re 'select(.uploadState == "SUCCESS")' > /dev/null
+
+          PUBLISH=$(curl -sf -X POST \
+            -H "Authorization: Bearer $ACCESS_TOKEN" \
+            -H "x-goog-api-version: 2" \
+            -H "Content-Length: 0" \
+            "https://www.googleapis.com/chromewebstore/v1.1/items/$EXTENSION_ID/publish")
+          echo "$PUBLISH"
+          echo "$PUBLISH" | jq -re '.status | index("OK")' > /dev/null
+
+      - name: Publish to Edge Add-ons
+        env:
+          PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          BASE="https://api.addons.microsoftedge.microsoft.com/v1/products/$PRODUCT_ID"
+          AUTH=(-H "Authorization: ApiKey $API_KEY" -H "X-ClientID: $CLIENT_ID")
+
+          OP_URL=$(curl -sf -D - -o /dev/null -X POST "$BASE/submissions/draft/package" \
+            "${AUTH[@]}" -H "Content-Type: application/zip" \
+            --data-binary @askfutures-clipper.zip \
+            | tr -d '\r' | sed -n 's/^[Ll]ocation: *//p')
+          echo "upload operation: $OP_URL"
+
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf "$BASE/submissions/draft/package/operations/$OP_URL" "${AUTH[@]}" | jq -re .status)
+            echo "upload status: $STATUS"
+            [ "$STATUS" = "Succeeded" ] && break
+            [ "$STATUS" = "Failed" ] && exit 1
+            sleep 10
+          done
+          [ "$STATUS" = "Succeeded" ]
+
+          PUB_OP=$(curl -sf -D - -o /dev/null -X POST "$BASE/submissions" "${AUTH[@]}" \
+            -H "Content-Type: application/json" \
+            -d '{"notes":"Automated release '"$GITHUB_REF_NAME"'"}' \
+            | tr -d '\r' | sed -n 's/^[Ll]ocation: *//p')
+          echo "publish operation: $PUB_OP"
+
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf "$BASE/submissions/operations/$PUB_OP" "${AUTH[@]}" | jq -re .status)
+            echo "publish status: $STATUS"
+            [ "$STATUS" = "Succeeded" ] && break
+            [ "$STATUS" = "Failed" ] && exit 1
+            sleep 10
+          done
+          [ "$STATUS" = "Succeeded" ]

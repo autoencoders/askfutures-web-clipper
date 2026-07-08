@@ -66,6 +66,13 @@ Dependencies are exact-pinned and locked; the build is unminified esbuild
 output. `npm ci && npm run build` from a clean checkout reproduces `dist/`
 byte-for-byte, so reviewers can verify a shipped package against the source.
 
+### Releasing
+
+Store publication (Chrome Web Store + Edge Add-ons) is automated from a
+version tag — see [store/PUBLISHING.md](store/PUBLISHING.md). Listing copy
+lives in [store/listing.md](store/listing.md); the privacy policy is
+[PRIVACY.md](PRIVACY.md).
+
 ## Credits
 
 Content extraction is [defuddle](https://github.com/kepano/defuddle) by

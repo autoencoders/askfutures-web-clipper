@@ -11,10 +11,10 @@ export const MAX_CLIP_BYTES = 2 * 1024 * 1024;
 
 export const STORAGE_KEY_PENDING_CLIP = 'pendingClip';
 
-// window.postMessage types (page <-> content script), see SECURITY.md.
+// window.postMessage types (page <-> content script), see SECURITY.md. These
+// mirror session-ui's lib/clip/protocol.ts — change them there first.
 export const PAGE_MSG = {
   ready: 'askfutures-analyze-ready',
-  clipQuery: 'askfutures-clip-query',
   clip: 'askfutures-clip',
   clipAck: 'askfutures-clip-ack',
 } as const;

@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "AskFutures Clipper",
+  "version": "0.1.0",
+  "description": "Clip the page you're reading — articles or YouTube transcripts — into askfutures.com to analyze as a trading strategy.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://askfutures.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Clip to AskFutures",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://askfutures.com/analyze*"],
+      "js": ["handoff.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

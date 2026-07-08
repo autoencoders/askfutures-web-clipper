@@ -1,0 +1,25 @@
+{
+  "name": "askfutures-web-clipper",
+  "version": "0.1.0",
+  "description": "Browser extension that clips the current page or YouTube transcript into askfutures.com for trading-strategy analysis.",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/autoencoders/askfutures-web-clipper.git"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm run build",
+    "package": "npm run build && rm -f askfutures-clipper.zip && cd dist && zip -X -q -r ../askfutures-clipper.zip ."
+  },
+  "dependencies": {
+    "defuddle": "0.19.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.0.287",
+    "esbuild": "0.27.3",
+    "typescript": "5.9.3"
+  }
+}

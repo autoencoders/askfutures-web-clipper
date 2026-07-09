@@ -245,10 +245,9 @@ function previewCard(clip: Clip, token: string): CardData {
   };
 }
 
-// Source identity + colors for the badge. YouTube gets its brand red and glyph;
-// an article gets its favicon plus a background tinted from the page's declared
-// theme color (falling back to a neutral slate). Badge text stays a readable
-// light color for arbitrary sites — the color comes from the icon and tint.
+// Source identity + colors for the badge. The badge text and background stay a
+// neutral slate for every source so the pill never reads as a warning — the
+// color comes only from the icon: YouTube's red glyph, or an article's favicon.
 function brandFor(clip: Clip): {
   sourceName: string;
   fg: string;
@@ -259,8 +258,8 @@ function brandFor(clip: Clip): {
   if (clip.kind === 'youtube') {
     return {
       sourceName: clip.site_name || 'YouTube',
-      fg: '#f87171',
-      bg: 'rgba(239,68,68,.16)',
+      fg: '#cbd5e1',
+      bg: 'rgba(148,163,184,.14)',
       iconSvg: YOUTUBE_GLYPH,
       faviconUrl: null,
     };
@@ -337,9 +336,11 @@ function renderClipCard(data: CardData): void {
       c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&quot;',
     );
 
-  const STAR =
-    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">' +
-    '<path fill="#3b82f6" d="M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 18l-5.8 3 1.1-6.5L2.6 9.9l6.5-.9z"/></svg>';
+  // The AskFutures compass mark (same as the extension icon), static.
+  const LOGO =
+    '<svg viewBox="0 0 100 100" width="17" height="17" aria-hidden="true">' +
+    '<path fill="#3b82f6" d="M50 2 58 42 50 50 42 42Z M98 50 58 58 50 50 58 42Z M50 98 42 58 50 50 58 58Z M2 50 42 42 50 50 42 58Z"/>' +
+    '<circle cx="50" cy="50" r="9" fill="none" stroke="#0f1626" stroke-width="5"/></svg>';
   const COMPASS =
     '<svg viewBox="0 0 100 100" class="mark" width="20" height="20">' +
     '<path fill="#3b82f6" d="M50 2 58 42 50 50 42 42Z M98 50 58 58 50 50 58 42Z M50 98 42 58 50 50 58 58Z M2 50 42 42 50 50 42 58Z"/>' +
@@ -418,7 +419,7 @@ function renderClipCard(data: CardData): void {
   shadow.innerHTML =
     STYLE +
     '<div class="card"><div class="hd">' +
-    `${STAR}<span class="nm">AskFutures Clipper</span>` +
+    `${LOGO}<span class="nm">AskFutures Clipper</span>` +
     '<button class="x" type="button" aria-label="Dismiss">✕</button></div>' +
     body +
     '</div>';

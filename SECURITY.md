@@ -53,7 +53,7 @@ Rules:
   "site_name": "YouTube",             // nullable; og:site_name or hostname
   "favicon": "https://…/favicon.ico", // nullable; absolute URL of the site icon
   "theme_color": "#ff0000",           // nullable; validated CSS color from the page
-  "thumbnail_url": "https://…/hqdefault.jpg" // nullable; page lead image (og:image), absolute URL
+  "thumbnail_url": "https://…/hqdefault.jpg" // nullable; lead image — an article's og:image, or the YouTube thumbnail derived from the video id; absolute URL
 }
 ```
 

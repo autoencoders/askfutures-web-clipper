@@ -76,6 +76,9 @@ async function extract(): Promise<Clip> {
     clipped_at: new Date().toISOString(),
     kind,
     content_markdown: content,
+    site_name: siteName(),
+    favicon: faviconUrl(),
+    theme_color: themeColor(),
   };
 }
 
@@ -87,4 +90,101 @@ function canonicalUrl(): string {
     return new URL(canonical, location.href).href;
   }
   return location.href;
+}
+
+// Human-readable site name for the "Captured from …" label; falls back to the
+// bare hostname (minus a leading www.).
+function siteName(): string | null {
+  const meta =
+    metaContent('meta[property="og:site_name"]') ??
+    metaContent('meta[name="application-name"]');
+  if (meta) {
+    return meta;
+  }
+  return location.hostname.replace(/^www\./, '') || null;
+}
+
+// Best site icon for coloring the preview. Prefer the largest declared
+// <link rel="icon"|"apple-touch-icon"> (SVG and Apple touch icons tend to be
+// the richest), then fall back to the well-known /favicon.ico. Always an
+// absolute URL, or null if none resolves.
+function faviconUrl(): string | null {
+  const links = Array.from(
+    document.querySelectorAll<HTMLLinkElement>(
+      'link[rel~="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]',
+    ),
+  );
+  let best: { href: string; score: number } | null = null;
+  for (const link of links) {
+    const href = link.getAttribute('href');
+    if (!href) continue;
+    let abs: string;
+    try {
+      abs = new URL(href, location.href).href;
+    } catch {
+      continue;
+    }
+    const rel = (link.getAttribute('rel') ?? '').toLowerCase();
+    const type = (link.getAttribute('type') ?? '').toLowerCase();
+    let score = maxIconSize(link.getAttribute('sizes'));
+    if (type.includes('svg') || abs.toLowerCase().endsWith('.svg')) score = 1024;
+    if (rel.includes('apple-touch-icon')) score += 32; // usually opaque + colorful
+    if (!best || score > best.score) best = { href: abs, score };
+  }
+  if (best) {
+    return best.href;
+  }
+  try {
+    return new URL('/favicon.ico', location.origin).href;
+  } catch {
+    return null;
+  }
+}
+
+// "32x32", "any", "16x16 32x32" → the largest edge, or 16 when unparseable.
+function maxIconSize(sizes: string | null): number {
+  if (!sizes) return 16;
+  if (/\bany\b/i.test(sizes)) return 512;
+  let max = 0;
+  for (const token of sizes.split(/\s+/)) {
+    const dim = /^(\d+)x(\d+)$/i.exec(token);
+    if (dim) max = Math.max(max, Number(dim[1]), Number(dim[2]));
+  }
+  return max || 16;
+}
+
+// The page's declared brand color (<meta name="theme-color">), validated as a
+// real CSS color so we never forward junk. Honors a media-scoped tag matching
+// the current color scheme when several are present.
+function themeColor(): string | null {
+  const tags = Array.from(
+    document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]'),
+  );
+  let fallback: string | null = null;
+  for (const tag of tags) {
+    const value = tag.getAttribute('content')?.trim();
+    if (!value || !isColor(value)) continue;
+    const media = tag.getAttribute('media');
+    if (!media) {
+      fallback ??= value;
+    } else if (window.matchMedia(media).matches) {
+      return value;
+    }
+  }
+  return fallback;
+}
+
+function isColor(value: string): boolean {
+  if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function') {
+    return CSS.supports('color', value);
+  }
+  return /^#[0-9a-f]{3,8}$|^(rgb|hsl)a?\(/i.test(value);
+}
+
+function metaContent(selector: string): string | null {
+  const value = document
+    .querySelector<HTMLMetaElement>(selector)
+    ?.getAttribute('content')
+    ?.trim();
+  return value || null;
 }

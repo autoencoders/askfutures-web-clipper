@@ -70,9 +70,9 @@ askfutures.com for trading-strategy analysis, on the user's explicit click.
 ## Data-use disclosures (Chrome "Privacy practices" tab)
 
 - Collects: **Website content** (the page text or transcript the user
-  explicitly clips, plus the page's title, site name, icon URL, and theme
-  color for the preview) — transferred only to askfutures.com, in the user's
-  browser, to provide the extension's single purpose.
+  explicitly clips, plus the page's title, site name, icon URL, theme
+  color, and lead image for the preview) — transferred only to askfutures.com,
+  in the user's browser, to provide the extension's single purpose.
 - Does NOT collect: personally identifiable information, health, financial or
   payment information, authentication information, personal communications,
   location, web history, user activity.

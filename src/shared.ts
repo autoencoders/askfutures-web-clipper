@@ -38,10 +38,10 @@ export const RUNTIME_MSG = {
 } as const;
 
 // v1 clip payload — the contract both repos share (plan doc § "Clip payload").
-// site_name/favicon/theme_color are additive optional v1 fields: pure UI
-// enrichment for the /analyze preview, always nullable, safe for an older page
-// to ignore. Do not bump `v` for them — a page that validates `v === 1` must
-// keep accepting these. See SECURITY.md.
+// site_name/favicon/theme_color/thumbnail_url are additive optional v1 fields:
+// pure UI enrichment for the /analyze preview, always nullable, safe for an
+// older page to ignore. Do not bump `v` for them — a page that validates
+// `v === 1` must keep accepting these. See SECURITY.md.
 export interface Clip {
   v: 1;
   source_url: string;
@@ -55,4 +55,8 @@ export interface Clip {
   site_name: string | null;
   favicon: string | null;
   theme_color: string | null;
+  // The page's lead image (og:image/twitter:image), for the /analyze preview.
+  // For an article this is the only image source; for YouTube the server can
+  // also derive it from the video id. Absolute URL or null. Never required.
+  thumbnail_url: string | null;
 }

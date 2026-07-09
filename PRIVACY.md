@@ -18,8 +18,8 @@ strategy.
   the tab you clicked on (the `activeTab` permission). The extension has no
   access to your browsing otherwise, on any site, at any time.
 - The extracted clip (page text or transcript, title, author, publication
-  date, page URL, clip timestamp, and the site's name, icon URL, and theme
-  color for coloring the preview) is held temporarily in the browser's
+  date, page URL, clip timestamp, and the site's name, icon URL, theme
+  color, and lead image for the preview) is held temporarily in the browser's
   session storage — in memory, never written to disk — and delivered to the
   askfutures.com page in your browser. It is deleted from the extension as
   soon as askfutures.com confirms receipt, and in any case when the browser

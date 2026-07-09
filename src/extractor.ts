@@ -79,6 +79,7 @@ async function extract(): Promise<Clip> {
     site_name: siteName(),
     favicon: faviconUrl(),
     theme_color: themeColor(),
+    thumbnail_url: thumbnailUrl(),
   };
 }
 
@@ -179,6 +180,24 @@ function isColor(value: string): boolean {
     return CSS.supports('color', value);
   }
   return /^#[0-9a-f]{3,8}$|^(rgb|hsl)a?\(/i.test(value);
+}
+
+// The page's lead image for the /analyze preview: og:image (or a twitter:image
+// fallback), resolved to an absolute URL. For an article this is the only image
+// the server gets; a YouTube thumbnail is also derivable server-side from the
+// video id. Null if the page declares none or the URL won't resolve.
+function thumbnailUrl(): string | null {
+  const src =
+    metaContent('meta[property="og:image"]') ??
+    metaContent('meta[property="og:image:url"]') ??
+    metaContent('meta[name="twitter:image"]') ??
+    metaContent('meta[name="twitter:image:src"]');
+  if (!src) return null;
+  try {
+    return new URL(src, location.href).href;
+  } catch {
+    return null;
+  }
 }
 
 function metaContent(selector: string): string | null {

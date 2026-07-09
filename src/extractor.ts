@@ -46,6 +46,9 @@ window.__askfuturesExtract = async () => {
 // constructor names its extractorType field is derived from.
 const YOUTUBE_HOSTS = /(^|\.)(youtube\.com|youtu\.be)$/;
 
+// A YouTube video id: 11 chars of the base64url alphabet.
+const YOUTUBE_VIDEO_ID = /^[\w-]{11}$/;
+
 async function extract(): Promise<Clip> {
   const result = await new Defuddle(document, {
     url: location.href,
@@ -182,17 +185,57 @@ function isColor(value: string): boolean {
   return /^#[0-9a-f]{3,8}$|^(rgb|hsl)a?\(/i.test(value);
 }
 
-// The page's lead image for the /analyze preview: og:image (or a twitter:image
-// fallback), resolved to an absolute URL. For an article this is the only image
-// the server gets; a YouTube thumbnail is also derivable server-side from the
-// video id. Null if the page declares none or the URL won't resolve.
+// The page's lead image for the /analyze preview. For an article this is the
+// og:image (or a twitter:image fallback), resolved to an absolute URL — the
+// only image the server gets. YouTube is a SPA that does NOT refresh its og:*
+// tags on client-side navigation, so after moving between videos in-page its
+// og:image still names the previously-viewed video; trust it only when it still
+// points at the current video (YouTube thumbnail URLs carry the id in their
+// path), otherwise derive the thumbnail from the current video id, which is
+// always live in the URL. Null if the page declares none or nothing resolves.
 function thumbnailUrl(): string | null {
   const src =
     metaContent('meta[property="og:image"]') ??
     metaContent('meta[property="og:image:url"]') ??
     metaContent('meta[name="twitter:image"]') ??
     metaContent('meta[name="twitter:image:src"]');
-  if (!src) return null;
+
+  const videoId = youtubeVideoId();
+  if (videoId) {
+    // og:image is this video's thumbnail only when its /vi/<id>/ (or
+    // /vi_webp/<id>/) path segment names the current video; a stale og:image
+    // (a different id, left over from an in-page navigation) is discarded in
+    // favor of the always-current id-derived thumbnail.
+    const ogMatch = src ? /\/vi(?:_webp)?\/([\w-]{11})\//.exec(src) : null;
+    return src && ogMatch?.[1] === videoId
+      ? absoluteUrl(src)
+      : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+  }
+
+  return src ? absoluteUrl(src) : null;
+}
+
+// The current YouTube video id from the URL — which the History API keeps live
+// across SPA navigation, unlike the og:* tags. Handles watch?v=, youtu.be/<id>,
+// and /shorts|/embed|/live/<id>. Null off YouTube or when no valid id is found.
+function youtubeVideoId(): string | null {
+  if (!YOUTUBE_HOSTS.test(location.hostname)) return null;
+  let url: URL;
+  try {
+    url = new URL(location.href);
+  } catch {
+    return null;
+  }
+  const fromQuery = url.searchParams.get('v');
+  if (fromQuery && YOUTUBE_VIDEO_ID.test(fromQuery)) return fromQuery;
+  const fromPath =
+    url.hostname === 'youtu.be'
+      ? url.pathname.slice(1).split('/')[0]
+      : /^\/(?:shorts|embed|live|v)\/([^/?#]+)/.exec(url.pathname)?.[1];
+  return fromPath && YOUTUBE_VIDEO_ID.test(fromPath) ? fromPath : null;
+}
+
+function absoluteUrl(src: string): string | null {
   try {
     return new URL(src, location.href).href;
   } catch {

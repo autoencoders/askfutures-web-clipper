@@ -76,7 +76,7 @@ the whole time.
 
 Edge has no per-permission justification forms, so this half is quicker.
 
-## Part 3 — API credentials + repo secrets (after the listings are approved)
+## Part 3 — API credentials + Doppler (after the listings are approved)
 
 This only enables the automated tag-driven releases — nothing blocks on it
 on day one, and it's the fiddliest part (especially Google's OAuth refresh
@@ -101,24 +101,42 @@ Two options:
   with the `https://www.googleapis.com/auth/chromewebstore` scope
   (→ `CWS_REFRESH_TOKEN`).
 
-### Edge Add-ons API
+### Where the credentials live: Doppler, not GitHub secrets
 
-Partner Center → Publish API settings → generate API credentials →
-`EDGE_CLIENT_ID` + `EDGE_API_KEY`.
+The publish credentials are stored in **Doppler** and pulled at release time;
+the **only** value that lives in GitHub is a Doppler **service token**. One
+secret set to rotate and audit, and the same credentials work for a by-hand
+publish (below) with the exact scripts CI runs.
 
-### Repo secrets
+1. Add the store credentials to the Doppler config you use for this repo:
 
-GitHub → repo → Settings → Secrets and variables → Actions → add:
+   | Secret | From |
+   |---|---|
+   | `CWS_EXTENSION_ID` | Part 1, step 7 |
+   | `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` | Chrome API setup above |
 
-| Secret | From |
-|---|---|
-| `CWS_EXTENSION_ID` | Part 1, step 7 |
-| `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` | Chrome API setup above |
-| `EDGE_PRODUCT_ID` | Part 2, step 5 |
-| `EDGE_CLIENT_ID`, `EDGE_API_KEY` | Edge API setup above |
+2. Create a **service token** scoped to that config (Doppler → the config →
+   *Access* → *Service Tokens*). A service token is config-scoped, so CI needs
+   no project/config name — just the token.
 
-These are repo-scoped store-publish keys only — nothing else ever lands in
-this public repo.
+3. Add it as the single GitHub repo secret **`DOPPLER_TOKEN`** (GitHub → repo →
+   Settings → Secrets and variables → Actions). Nothing else store-related ever
+   lands in this public repo.
+
+The [Release workflow](../.github/workflows/release.yml) installs the Doppler
+CLI and runs `doppler run -- bash store/publish-chrome.sh`, so the credentials
+are injected only for that step and never touch the repo.
+
+### Publishing by hand (optional)
+
+The tag-driven release is the normal path, but the same scripts read the same
+Doppler config, so you can publish without a tag. Point the Doppler CLI at that
+config once (`doppler setup`), then:
+
+```sh
+npm run package
+doppler run -- bash store/publish-chrome.sh
+```
 
 ## After the reviews come back
 

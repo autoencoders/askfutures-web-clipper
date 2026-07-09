@@ -23,8 +23,9 @@ Turn what you're reading or watching into a testable trading strategy.
 
 Click the AskFutures button on any article or YouTube video. The extension
 extracts the readable content — for videos, the transcript — right in your
-browser, and opens askfutures.com/analyze with a preview. One more click and
-AskFutures turns it into concrete, backtestable trading strategies.
+browser and shows a quick preview: source, title, and length. Click Send to
+hand it to askfutures.com/analyze, then confirm to turn it into concrete,
+backtestable trading strategies.
 
 WHY A BROWSER EXTENSION?
 YouTube transcripts and many pages can't be fetched by a server on your
@@ -58,7 +59,7 @@ askfutures.com for trading-strategy analysis, on the user's explicit click.
 - **activeTab** — read the content of the page the user clicked the toolbar
   button on. Access exists only for that tab, only after the click.
 - **scripting** — inject the content extractor into that same tab on click,
-  and the small in-page status indicator.
+  and the small in-page preview card that confirms what was clipped.
 - **storage** — buffer the clip in session storage (memory-only) until
   askfutures.com acknowledges receipt, so it survives a slow page load or a
   sign-in redirect.
@@ -68,9 +69,10 @@ askfutures.com for trading-strategy analysis, on the user's explicit click.
 
 ## Data-use disclosures (Chrome "Privacy practices" tab)
 
-- Collects: **Website content** (the page text the user explicitly clips) —
-  transferred only to askfutures.com, in the user's browser, to provide the
-  extension's single purpose.
+- Collects: **Website content** (the page text or transcript the user
+  explicitly clips, plus the page's title, site name, icon URL, and theme
+  color for the preview) — transferred only to askfutures.com, in the user's
+  browser, to provide the extension's single purpose.
 - Does NOT collect: personally identifiable information, health, financial or
   payment information, authentication information, personal communications,
   location, web history, user activity.
@@ -86,9 +88,12 @@ the policy there and update both listings.)
 
 ## Screenshots (1280×800, in `store/screenshots/`)
 
-1. `clip-youtube.png` — clipping a YouTube video, status widget visible.
+1. `clip-youtube.png` — clipping a YouTube video, in-page preview card visible.
 2. `analyze-preview.png` — the clip preview card on askfutures.com/analyze.
-3. `clip-article.png` — clipping an article, success state.
+3. `clip-article.png` — clipping an article, in-page preview card visible.
+
+> Screenshots 1 and 3 must be regenerated against the new preview-card overlay
+> before the next submission (the old ones show the status widget).
 
 ## Icon
 

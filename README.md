@@ -2,7 +2,7 @@
 
 A browser extension that clips the page you're reading — articles or YouTube
 transcripts — into [askfutures.com](https://askfutures.com) to analyze as a
-trading strategy. One click, nothing else.
+trading strategy. Clip, glance at the preview, send.
 
 ## What it does
 
@@ -12,11 +12,13 @@ Click the toolbar button on any page:
    page's own origin**, using [defuddle](https://github.com/kepano/defuddle)
    (MIT) — the extraction library behind Obsidian Web Clipper. On YouTube it
    extracts the video transcript using defuddle's YouTube extractor.
-2. It opens (or focuses) `https://askfutures.com/analyze` and hands the clip to
-   the page over an origin-checked `window.postMessage` handshake — see
-   [SECURITY.md](SECURITY.md) for the exact contract.
-3. The `/analyze` page shows you a preview and analyzes the content only when
-   you confirm.
+2. A small preview card appears on the page — source (tinted with the site's
+   own icon and theme color), title, and word count — so you can confirm what
+   was captured. Click **Send to AskFutures** to hand it off, or dismiss it.
+3. Sending opens (or focuses) `https://askfutures.com/analyze` and delivers the
+   clip to the page over an origin-checked `window.postMessage` handshake — see
+   [SECURITY.md](SECURITY.md) for the exact contract. The `/analyze` page shows
+   its own preview and analyzes the content only when you confirm there.
 
 The clip is buffered in `chrome.storage.session` (memory-backed, cleared when
 the browser exits) until the page acknowledges receipt, so it survives a slow

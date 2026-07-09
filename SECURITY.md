@@ -47,9 +47,21 @@ Rules:
   "published_at": "…",                // nullable, as found on the page
   "clipped_at": "2026-07-08T14:05:00Z", // ISO-8601 UTC, extension clock
   "kind": "youtube" | "article",
-  "content_markdown": "…"             // extracted content; transcripts as text
+  "content_markdown": "…",            // extracted content; transcripts as text
+  // Additive optional v1 fields — site chrome for coloring the /analyze
+  // preview. All nullable; a page that predates them simply ignores them.
+  "site_name": "YouTube",             // nullable; og:site_name or hostname
+  "favicon": "https://…/favicon.ico", // nullable; absolute URL of the site icon
+  "theme_color": "#ff0000"            // nullable; validated CSS color from the page
 }
 ```
+
+`site_name`, `favicon`, and `theme_color` are **additive optional** fields on
+the same `v: 1` payload — pure UI enrichment. The `v` number does **not** bump
+for them: a page that validates `v === 1` and ignores unknown/null fields keeps
+working unchanged, and the extension always tolerates their absence. They carry
+only public page chrome, never clip content, and `favicon` is a plain URL the
+page may choose to load from its own origin.
 
 The extension refuses payloads over 2 MB.
 

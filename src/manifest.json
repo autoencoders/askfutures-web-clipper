@@ -3,10 +3,13 @@
   "name": "AskFutures Clipper",
   "version": "0.4.1",
   "description": "Clip the page you're reading — articles or YouTube transcripts — into askfutures.com to analyze as a trading strategy.",
-  "permissions": ["activeTab", "scripting", "storage"],
-  "host_permissions": ["https://askfutures.com/*"],
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
+  "host_permissions": ["https://*.askfutures.com/*"],
   "background": {
     "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   },
   "action": {
     "default_title": "Clip to AskFutures",

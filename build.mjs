@@ -34,4 +34,5 @@ await esbuild.build({
 });
 
 cpSync('src/manifest.json', 'dist/manifest.json');
+cpSync('src/sidepanel.html', 'dist/sidepanel.html');
 cpSync('src/icons', 'dist/icons', { recursive: true });

@@ -81,8 +81,10 @@ The extension refuses payloads over 2 MB.
 - **Minimal reach.** `activeTab` means the extension can read a page only in
   direct response to the user's click on that page; there are no broad host
   permissions and no background browsing access. The one host permission
-  (`https://askfutures.com/*`) exists solely to inject the handoff content
-  script above.
+  (`https://*.askfutures.com/*`) exists to inject the handoff content script
+  above and to let the askfutures.com session work inside the extension's side
+  panel (auth cookies live on `clerk.askfutures.com`, so the pattern covers
+  subdomains).
 - **No remote code.** All code, including the bundled defuddle library, ships
   in the package. The extension fetches no code at runtime and sends no
   telemetry.

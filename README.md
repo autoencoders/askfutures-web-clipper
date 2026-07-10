@@ -25,6 +25,14 @@ the browser exits) until the page acknowledges receipt, so it survives a slow
 page load or a sign-in redirect. Clips larger than 2 MB are refused with a
 clear message.
 
+**One exception:** on trading sites — [gocharting.com](https://gocharting.com),
+[tradingview.com](https://tradingview.com),
+[robinhood.com](https://robinhood.com),
+[ninjatrader.com](https://ninjatrader.com), and
+[cmegroup.com](https://cmegroup.com) — the toolbar button doesn't clip.
+It opens askfutures.com in Chrome's side panel instead, so the chart and
+AskFutures sit side by side in the same window.
+
 ## Permissions — deliberately minimal
 
 | Permission | Why |
@@ -32,7 +40,8 @@ clear message.
 | `activeTab` | read the page you clicked on, only when you click |
 | `scripting` | inject the extractor into that page |
 | `storage` | buffer the clip until askfutures.com acknowledges it |
-| `https://askfutures.com/*` | the handoff content script on the `/analyze` page |
+| `sidePanel` | show askfutures.com beside the chart on charting sites |
+| `https://*.askfutures.com/*` | the handoff content script on the `/analyze` page, and first-party cookies for the side panel (sign-in lives on `clerk.askfutures.com`) |
 
 There are no broad host permissions and no background access to your browsing:
 the extension can only read a page in direct response to your click

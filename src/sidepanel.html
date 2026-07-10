@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- The AskFutures side panel: askfutures.com embedded next to the page, so a
+     chart and AskFutures can sit side by side (see background.ts — on the
+     charting sites in SIDE_PANEL_DOMAINS the toolbar click opens this instead
+     of clipping).
+     askfutures.com allows being framed by the extension; the browser session
+     carries in because the extension holds the askfutures.com host
+     permission. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>AskFutures</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0f1626;
+      }
+      iframe {
+        display: block;
+        border: 0;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe src="https://askfutures.com/sessions" title="AskFutures" allow="clipboard-write"></iframe>
+  </body>
+</html>

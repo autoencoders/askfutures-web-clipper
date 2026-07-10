@@ -5,6 +5,10 @@
 // the buffered clip. The buffer is cleared only when the page acks (see
 // SECURITY.md), so the clip survives a slow load or a sign-in redirect on the
 // askfutures side; dismissing the card drops it.
+//
+// One exception: on charting sites (SIDE_PANEL_DOMAINS) the click clips
+// nothing — it opens the AskFutures side panel (sidepanel.html) so the chart
+// and askfutures.com sit side by side.
 
 import {
   ANALYZE_URL,
@@ -17,9 +21,40 @@ import {
   STORAGE_KEY_PENDING_TOKEN,
 } from './shared';
 
+// Charting sites where the toolbar click opens the AskFutures side panel
+// (side by side with the chart) instead of clipping. Matched against the
+// hostname, subdomains included.
+const SIDE_PANEL_DOMAINS = [
+  'gocharting.com',
+  'tradingview.com',
+  'robinhood.com',
+  'ninjatrader.com',
+  'cmegroup.com',
+];
+
 chrome.action.onClicked.addListener((tab) => {
+  // sidePanel.open() must run while the click's user gesture is still live —
+  // it does not survive an await, so this branch stays synchronous. The
+  // chrome.sidePanel guard falls back to the clip flow on Chrome < 114.
+  if (tab.id !== undefined && isSidePanelUrl(tab.url) && chrome.sidePanel) {
+    void chrome.sidePanel.open({ tabId: tab.id });
+    return;
+  }
   void handleClick(tab);
 });
+
+function isSidePanelUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    return (
+      /^https?:$/.test(protocol) &&
+      SIDE_PANEL_DOMAINS.some((d) => hostname === d || hostname.endsWith(`.${d}`))
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
   if (tab.id === undefined || !tab.url || !/^https?:/.test(tab.url)) {

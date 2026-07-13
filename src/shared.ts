@@ -47,7 +47,18 @@ export const RUNTIME_MSG = {
   // panel may already be open for it — re-scrape. Makes the toolbar icon
   // double as a refresh button.
   chartContextPing: 'chart-context-ping',
+  // Service worker -> offscreen document: extract a PDF's text layer.
+  // chrome.runtime.sendMessage broadcasts to every extension context, so the
+  // request carries target: 'offscreen' and other listeners ignore it.
+  extractPdf: 'extract-pdf',
 } as const;
+
+// The offscreen extractor's reply to an extractPdf message. Same envelope
+// shape as extractor.ts's ExtractOutcome: the offscreen document never
+// rejects, it always resolves to this.
+export type PdfExtractOutcome =
+  | { ok: true; clip: Clip }
+  | { ok: false; error: string };
 
 // v1 clip payload — the contract both repos share (plan doc § "Clip payload").
 // site_name/favicon/theme_color/thumbnail_url are additive optional v1 fields:
@@ -61,7 +72,7 @@ export interface Clip {
   author: string | null;
   published_at: string | null;
   clipped_at: string;
-  kind: 'youtube' | 'article';
+  kind: 'youtube' | 'article' | 'pdf';
   content_markdown: string;
   // Site chrome, for coloring the preview UI. Never required.
   site_name: string | null;

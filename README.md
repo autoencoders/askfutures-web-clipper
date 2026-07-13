@@ -1,8 +1,8 @@
 # AskFutures Clipper
 
-A browser extension that clips the page you're reading — articles or YouTube
-transcripts — into [askfutures.com](https://askfutures.com) to analyze as a
-trading strategy. Clip, glance at the preview, send.
+A browser extension that clips the page you're reading — articles, PDF papers,
+or YouTube transcripts — into [askfutures.com](https://askfutures.com) to
+analyze as a trading strategy. Clip, glance at the preview, send.
 
 ## What it does
 
@@ -25,6 +25,14 @@ the browser exits) until the page acknowledges receipt, so it survives a slow
 page load or a sign-in redirect. Clips larger than 2 MB are refused with a
 clear message.
 
+**PDFs** work a little differently. Chrome's built-in PDF viewer accepts no
+script injection, so on a PDF tab the extension extracts the text layer with
+[pdf.js](https://github.com/mozilla/pdf.js) (Apache-2.0, bundled) in an
+offscreen document instead, and — since the preview card can't render there —
+the toolbar click itself is the confirmation: the clip goes straight to
+`/analyze`. Text-layer PDFs only; scanned (image-only) PDFs aren't supported —
+there's no OCR — and fail with a clear message in the button's hover title.
+
 **One exception:** on trading sites — [gocharting.com](https://gocharting.com),
 [tradingview.com](https://tradingview.com),
 [robinhood.com](https://robinhood.com),
@@ -45,6 +53,7 @@ snapshot at panel open, refreshable on request (see
 | `scripting` | inject the extractor into that page |
 | `storage` | buffer the clip until askfutures.com acknowledges it |
 | `sidePanel` | show askfutures.com beside the chart on charting sites |
+| `offscreen` | parse PDFs with pdf.js in a short-lived offscreen document (created per PDF clip, closed after) |
 | `https://*.askfutures.com/*` | the handoff content script on the `/analyze` page, and first-party cookies for the side panel (sign-in lives on `clerk.askfutures.com`) |
 
 There are no broad host permissions and no background access to your browsing:
@@ -91,7 +100,9 @@ lives in [store/listing.md](store/listing.md); the privacy policy is
 ## Credits
 
 Content extraction is [defuddle](https://github.com/kepano/defuddle) by
-[kepano](https://github.com/kepano), MIT-licensed and bundled unmodified. If
+[kepano](https://github.com/kepano), MIT-licensed and bundled unmodified. PDF
+text extraction is [pdf.js](https://github.com/mozilla/pdf.js) by Mozilla,
+Apache-2.0-licensed and bundled unmodified. If
 you want general-purpose web clipping into your own notes, use
 [Obsidian Web Clipper](https://obsidian.md/clipper) — this extension
 deliberately does one thing only.

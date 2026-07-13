@@ -46,8 +46,8 @@ Rules:
   "author": "…",                      // nullable
   "published_at": "…",                // nullable, as found on the page
   "clipped_at": "2026-07-08T14:05:00Z", // ISO-8601 UTC, extension clock
-  "kind": "youtube" | "article",
-  "content_markdown": "…",            // extracted content; transcripts as text
+  "kind": "youtube" | "article" | "pdf",
+  "content_markdown": "…",            // extracted content; transcripts and PDF text layers as text
   // Additive optional v1 fields — preview enrichment for the /analyze page.
   // All nullable; a page that predates them simply ignores them.
   "site_name": "YouTube",             // nullable; og:site_name or hostname
@@ -139,14 +139,21 @@ redesign silently empties fields rather than erroring.
   it navigates elsewhere — that is what lets the side panel refresh a chart
   snapshot on request — but it never extends to other tabs or sites. Chart
   context is read only on charting sites the user opened the panel on, and is
-  sent only to askfutures.com. The one host permission
+  sent only to askfutures.com. Clipping a PDF fetches that tab's own URL once
+  (Chrome's PDF viewer accepts no injection, so the bytes are re-fetched and
+  parsed in a short-lived offscreen document) — still under the same
+  click-scoped `activeTab` grant, still only the page the user asked to clip.
+  Because the PDF viewer can't host the preview card, a PDF clip skips it: the
+  click is the confirmation and `/analyze` opens directly, where the page's own
+  preview-and-confirm step still applies before anything is analyzed. The one
+  host permission
   (`https://*.askfutures.com/*`) exists to inject the handoff content script
   above and to let the askfutures.com session work inside the extension's side
   panel (auth cookies live on `clerk.askfutures.com`, so the pattern covers
   subdomains).
-- **No remote code.** All code, including the bundled defuddle library, ships
-  in the package. The extension fetches no code at runtime and sends no
-  telemetry.
+- **No remote code.** All code, including the bundled defuddle and pdf.js
+  libraries, ships in the package. The extension fetches no code at runtime
+  and sends no telemetry.
 
 ## Reporting a vulnerability
 

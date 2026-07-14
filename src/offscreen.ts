@@ -1,12 +1,13 @@
 // PDF extraction, in an offscreen document. Chrome blocks script injection
 // into its PDF viewer and service workers can't lazily import pdf.js, so the
 // service worker creates this document per PDF clip (background.ts,
-// extractPdfClip), sends the PDF's URL, and closes the document when the
-// envelope comes back. The document fetches the bytes itself: MV3 runtime
-// messages are JSON — no ArrayBuffer transfer — and the activeTab grant from
-// the user's click covers the origin here just as it does in the worker. The
-// URL is fetched verbatim so signed URLs (SSRN-style X-Amz-* params) keep
-// working; credentials ride along for cookie-gated PDFs.
+// extractPdfClip), hands it the PDF bytes to parse, and closes the document
+// when the envelope comes back. The service worker does the fetch, not this
+// document: the activeTab host grant from the user's click reaches the worker
+// but not this document's chrome-extension:// origin, where a cross-origin
+// fetch (e.g. an SSRN signed URL) would be CORS-blocked. Bytes arrive as
+// base64 because MV3 runtime messages are JSON — no ArrayBuffer/Uint8Array
+// transfer.
 //
 // Scope: text-layer PDFs only. A scanned (image-only) PDF fails with a clear
 // message — no OCR.
@@ -22,14 +23,6 @@ import { Clip, PdfExtractOutcome, RUNTIME_MSG } from './shared';
 
 GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('pdf.worker.min.mjs');
 
-// The whole file is parsed in memory, so bound the download. The 2 MB clip
-// limit (MAX_CLIP_BYTES) applies to the extracted text, which is far smaller
-// than the file — the service worker enforces it after extraction.
-const MAX_PDF_BYTES = 50 * 1024 * 1024;
-
-const FETCH_ERROR =
-  "Couldn't download this PDF — try reloading the page and clipping again.";
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) {
     return;
@@ -37,7 +30,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== RUNTIME_MSG.extractPdf || message.target !== 'offscreen') {
     return;
   }
-  void extract(String(message.url))
+  void extract(String(message.url), base64ToBytes(String(message.dataBase64)))
     .then((clip): PdfExtractOutcome => ({ ok: true, clip }))
     .catch(
       (err): PdfExtractOutcome => ({
@@ -49,8 +42,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // async sendResponse above
 });
 
-async function extract(url: string): Promise<Clip> {
-  const bytes = await download(url);
+async function extract(url: string, bytes: Uint8Array): Promise<Clip> {
   const task = getDocument({ data: bytes });
   try {
     let doc: PDFDocumentProxy;
@@ -98,46 +90,15 @@ async function extract(url: string): Promise<Clip> {
   }
 }
 
-async function download(url: string): Promise<Uint8Array> {
-  let res: Response;
-  try {
-    res = await fetch(url, { credentials: 'include' });
-  } catch {
-    throw new Error(FETCH_ERROR);
-  }
-  if (!res.ok || !res.body) {
-    throw new Error(FETCH_ERROR);
-  }
-  const declared = Number(res.headers.get('content-length'));
-  if (declared > MAX_PDF_BYTES) {
-    throw oversizeError(declared);
-  }
-  // content-length can lie (or be absent), so count while streaming too.
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.length;
-    if (total > MAX_PDF_BYTES) {
-      void reader.cancel().catch(() => {});
-      throw oversizeError(total);
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
+// Decode the base64 the service worker sent (see the header comment) back into
+// the byte array pdf.js parses.
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
-}
-
-function oversizeError(bytes: number): Error {
-  const mb = (bytes / (1024 * 1024)).toFixed(0);
-  return new Error(`This PDF is ${mb} MB — over the 50 MB limit.`);
 }
 
 // The text layer, page by page in document order. hasEOL marks line breaks; a

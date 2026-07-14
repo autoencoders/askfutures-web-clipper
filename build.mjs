@@ -17,8 +17,9 @@ const common = {
 rmSync('dist', { recursive: true, force: true });
 mkdirSync('dist');
 
-// gocharting.js is injected via chrome.scripting like the extractor below; it
-// only defines window.__askfuturesChartScrape (no dependencies, so no banner).
+// gocharting.js and tradingview.js are injected via chrome.scripting like the
+// extractor below; each only defines window.__askfuturesChartScrape (no
+// dependencies, so no banner).
 await esbuild.build({
   ...common,
   entryPoints: [
@@ -26,6 +27,7 @@ await esbuild.build({
     'src/handoff.ts',
     'src/sidepanel.ts',
     'src/gocharting.ts',
+    'src/tradingview.ts',
   ],
 });
 

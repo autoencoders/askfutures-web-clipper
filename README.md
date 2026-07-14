@@ -39,10 +39,10 @@ there's no OCR — and fail with a clear message in the button's hover title.
 [ninjatrader.com](https://ninjatrader.com), and
 [cmegroup.com](https://cmegroup.com) — the toolbar button doesn't clip.
 It opens askfutures.com in Chrome's side panel instead, so the chart and
-AskFutures sit side by side in the same window. On gocharting.com the panel
-also passes the chart's context into askfutures.com — ticker, timeframe, the
-indicators on the chart with their last values, and the last price — as a
-snapshot at panel open, refreshable on request (see
+AskFutures sit side by side in the same window. On gocharting.com and
+tradingview.com the panel also passes the chart's context into askfutures.com —
+ticker, timeframe, the indicators on the chart with their last values, and the
+last price — as a snapshot at panel open, refreshable on request (see
 [SECURITY.md](SECURITY.md) for the contract).
 
 ## Permissions — deliberately minimal

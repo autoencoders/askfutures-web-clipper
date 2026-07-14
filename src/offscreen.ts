@@ -140,20 +140,40 @@ function oversizeError(bytes: number): Error {
   return new Error(`This PDF is ${mb} MB — over the 50 MB limit.`);
 }
 
-// The text layer, page by page in document order. Items are concatenated the
-// way pdf.js's own text layer does — hasEOL marks line breaks — with a blank
-// line between pages. Plain text is fine as content_markdown; layout fidelity
-// (tables, equations) is explicitly not a goal.
+// The text layer, page by page in document order. hasEOL marks line breaks; a
+// blank line separates pages. pdf.js only emits the space glyphs a PDF
+// actually encodes, so words positioned by kerning/offset (common in
+// typeset papers) arrive as adjacent items with no space between them — a
+// same-line horizontal gap bridges those with a space so words don't merge.
+// Plain text is fine as content_markdown; layout fidelity (tables, equations)
+// is explicitly not a goal.
 async function textOf(doc: PDFDocumentProxy): Promise<string> {
   const pages: string[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
     let text = '';
+    let prevEndX: number | null = null;
+    let prevY: number | null = null;
     for (const item of content.items) {
       if (!('str' in item)) continue; // TextMarkedContent carries no text
+      const x = item.transform[4];
+      const y = item.transform[5];
+      const sameLine = prevY !== null && Math.abs(y - prevY) <= item.height * 0.5;
+      if (
+        text &&
+        !/\s$/.test(text) &&
+        !/^\s/.test(item.str) &&
+        sameLine &&
+        prevEndX !== null &&
+        x - prevEndX > item.height * 0.25
+      ) {
+        text += ' ';
+      }
       text += item.str;
       if (item.hasEOL) text += '\n';
+      prevEndX = x + item.width;
+      prevY = y;
     }
     page.cleanup();
     const cleaned = text.replace(/[ \t]+\n/g, '\n').trim();

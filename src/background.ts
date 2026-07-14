@@ -232,10 +232,19 @@ async function handlePdfClip(tabId: number, url: string): Promise<void> {
   }
 }
 
+// Extractions currently sharing the single offscreen document. Two tabs can be
+// clipped in quick succession and reuse the same document; it must be closed
+// only when the *last* one finishes, or a completing clip would tear the
+// document out from under one still mid-parse. Incremented before ensuring the
+// document so a concurrent clip's increment is already visible when this one's
+// finally runs (both are synchronous at call entry — no await between).
+let pdfClipsInFlight = 0;
+
 async function extractPdfClip(url: string): Promise<Clip> {
-  await ensureOffscreenDocument();
+  pdfClipsInFlight++;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    await ensureOffscreenDocument();
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
         () => reject(new Error('Timed out reading this PDF.')),
@@ -247,6 +256,10 @@ async function extractPdfClip(url: string): Promise<Clip> {
       target: 'offscreen',
       url,
     }) as Promise<PdfExtractOutcome | undefined>;
+    // If the timeout wins the race, this promise is abandoned and later
+    // rejects when closing the document severs the port; swallow that so it
+    // isn't an unhandled rejection.
+    request.catch(() => {});
     const outcome = await Promise.race([request, timeout]);
     if (!outcome) {
       throw new Error('PDF extraction returned nothing.');
@@ -257,15 +270,18 @@ async function extractPdfClip(url: string): Promise<Clip> {
     return outcome.clip;
   } finally {
     clearTimeout(timer);
-    await chrome.offscreen.closeDocument().catch(() => {});
+    if (--pdfClipsInFlight === 0) {
+      await chrome.offscreen.closeDocument().catch(() => {});
+    }
   }
 }
 
 // pdf.js needs worker + DOM APIs the service worker lacks, and can't be
 // lazily imported here anyway (no dynamic import in service workers), so it
 // lives in an offscreen document created per clip and closed again by
-// extractPdfClip. createDocument can race a concurrent click; losing that
-// race ("only a single offscreen document") is fine — one exists.
+// extractPdfClip once the last in-flight clip finishes. createDocument can
+// race a concurrent click; losing that race ("only a single offscreen
+// document") is fine — one exists.
 async function ensureOffscreenDocument(): Promise<void> {
   const contexts = await chrome.runtime.getContexts({
     contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
@@ -580,12 +596,9 @@ function brandFor(clip: Clip): {
 function wordCountLabel(clip: Clip): string {
   const words = clip.content_markdown.trim().split(/\s+/).filter(Boolean).length;
   const n = new Intl.NumberFormat('en-US').format(words);
-  const kind =
-    clip.kind === 'youtube'
-      ? 'full transcript'
-      : clip.kind === 'pdf'
-        ? 'pdf'
-        : 'article';
+  // Only the non-PDF path renders a card (PDF tabs can't host the overlay),
+  // so clip.kind is 'youtube' or 'article' here.
+  const kind = clip.kind === 'youtube' ? 'full transcript' : 'article';
   return `${n} words · ${kind}`;
 }
 

@@ -140,9 +140,9 @@ redesign silently empties fields rather than erroring.
   snapshot on request — but it never extends to other tabs or sites. Chart
   context is read only on charting sites the user opened the panel on, and is
   sent only to askfutures.com. Clipping a PDF fetches that tab's own URL once
-  (Chrome's PDF viewer accepts no injection, so the bytes are re-fetched and
-  parsed in a short-lived offscreen document) — still under the same
-  click-scoped `activeTab` grant, still only the page the user asked to clip.
+  (Chrome's PDF viewer accepts no injection, so the service worker re-fetches
+  the bytes — under the same click-scoped `activeTab` grant — and a short-lived
+  offscreen document parses them) — still only the page the user asked to clip.
   Because the PDF viewer can't host the preview card, a PDF clip skips it: the
   click is the confirmation and `/analyze` opens directly, where the page's own
   preview-and-confirm step still applies before anything is analyzed. The one

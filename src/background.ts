@@ -170,10 +170,23 @@ async function extractClip(tabId: number): Promise<Clip> {
 // ---------------------------------------------------------------------------
 // PDF clipping. See the header comment: no injection works on a PDF tab, so
 // extraction runs in an offscreen document and there is no preview card — the
-// toolbar click is the confirmation and /analyze opens directly.
+// toolbar click is the confirmation and /analyze opens directly. The service
+// worker fetches the bytes (the activeTab grant covers the tab's origin here,
+// but not the offscreen document's chrome-extension:// origin) and hands them
+// to the offscreen document to parse with pdf.js.
 
-// Mirrors extractor.ts's EXTRACT_TIMEOUT_MS, covering the whole fetch+parse.
+// Mirrors extractor.ts's EXTRACT_TIMEOUT_MS; covers the offscreen parse (the
+// fetch below fails fast on its own).
 const PDF_TIMEOUT_MS = 45_000;
+
+// The whole file is base64'd into a runtime message to the offscreen parser,
+// so bound the download. The 2 MB clip limit (MAX_CLIP_BYTES) applies to the
+// extracted text — far smaller than the file — and is enforced after
+// extraction in bufferClip.
+const MAX_PDF_BYTES = 50 * 1024 * 1024;
+
+const PDF_FETCH_ERROR =
+  "Couldn't download this PDF — try reloading the page and clipping again.";
 
 const DEFAULT_ACTION_TITLE = 'Clip to AskFutures';
 
@@ -241,6 +254,7 @@ async function handlePdfClip(tabId: number, url: string): Promise<void> {
 let pdfClipsInFlight = 0;
 
 async function extractPdfClip(url: string): Promise<Clip> {
+  const dataBase64 = bytesToBase64(await downloadPdf(url));
   pdfClipsInFlight++;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -255,6 +269,7 @@ async function extractPdfClip(url: string): Promise<Clip> {
       type: RUNTIME_MSG.extractPdf,
       target: 'offscreen',
       url,
+      dataBase64,
     }) as Promise<PdfExtractOutcome | undefined>;
     // If the timeout wins the race, this promise is abandoned and later
     // rejects when closing the document severs the port; swallow that so it
@@ -274,6 +289,66 @@ async function extractPdfClip(url: string): Promise<Clip> {
       await chrome.offscreen.closeDocument().catch(() => {});
     }
   }
+}
+
+// Fetch the PDF here in the service worker, not in the offscreen document: the
+// activeTab grant from the click covers the tab's origin from the worker, but
+// the offscreen document's chrome-extension:// origin has no such grant, so a
+// cross-origin fetch there (e.g. an SSRN signed URL) is CORS-blocked. Verbatim
+// URL so signed URLs keep working; credentials for cookie-gated PDFs. Streamed
+// with a size cap so a runaway file can't exhaust memory before parsing.
+async function downloadPdf(url: string): Promise<Uint8Array> {
+  let res: Response;
+  try {
+    res = await fetch(url, { credentials: 'include' });
+  } catch {
+    throw new Error(PDF_FETCH_ERROR);
+  }
+  if (!res.ok || !res.body) {
+    throw new Error(PDF_FETCH_ERROR);
+  }
+  const declared = Number(res.headers.get('content-length'));
+  if (declared > MAX_PDF_BYTES) {
+    throw pdfOversizeError(declared);
+  }
+  // content-length can lie (or be absent), so count while streaming too.
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_PDF_BYTES) {
+      void reader.cancel().catch(() => {});
+      throw pdfOversizeError(total);
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return bytes;
+}
+
+function pdfOversizeError(bytes: number): Error {
+  const mb = (bytes / (1024 * 1024)).toFixed(0);
+  return new Error(`This PDF is ${mb} MB — over the 50 MB limit.`);
+}
+
+// Uint8Array → base64 for the JSON runtime message to the offscreen parser
+// (MV3 messages can't carry a Uint8Array). Chunked so String.fromCharCode
+// isn't handed a spread of millions of args (a stack overflow).
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 // pdf.js needs worker + DOM APIs the service worker lacks, and can't be

@@ -15,7 +15,8 @@
     "package": "npm run build && rm -f askfutures-clipper.zip && cd dist && zip -X -q -r ../askfutures-clipper.zip ."
   },
   "dependencies": {
-    "defuddle": "0.19.1"
+    "defuddle": "0.19.1",
+    "pdfjs-dist": "6.1.200"
   },
   "devDependencies": {
     "@types/chrome": "0.0.287",

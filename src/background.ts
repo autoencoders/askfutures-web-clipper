@@ -6,9 +6,15 @@
 // SECURITY.md), so the clip survives a slow load or a sign-in redirect on the
 // askfutures side; dismissing the card drops it.
 //
-// One exception: on charting sites (SIDE_PANEL_DOMAINS) the click clips
-// nothing — it opens the AskFutures side panel (sidepanel.html) so the chart
-// and askfutures.com sit side by side.
+// Two exceptions to that flow:
+// - On charting sites (SIDE_PANEL_DOMAINS) the click clips nothing — it opens
+//   the AskFutures side panel (sidepanel.html) so the chart and askfutures.com
+//   sit side by side.
+// - On PDF tabs (Chrome's viewer rejects script injection, so neither the
+//   extractor nor the preview card can run there) extraction happens in a
+//   short-lived offscreen document and the click itself is the confirmation:
+//   the clip is buffered and /analyze opens directly, no card. Errors surface
+//   as badge '!' plus the action's hover title.
 
 import {
   ANALYZE_URL,
@@ -17,6 +23,7 @@ import {
   ChartContext,
   Clip,
   MAX_CLIP_BYTES,
+  PdfExtractOutcome,
   RUNTIME_MSG,
   STORAGE_KEY_PENDING_CLIP,
   STORAGE_KEY_PENDING_TOKEN,
@@ -70,31 +77,26 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
     return;
   }
   const tabId = tab.id;
+  const url = tab.url;
+  if (isPdfUrl(url)) {
+    await handlePdfClip(tabId, url);
+    return;
+  }
   await chrome.action.setBadgeText({ tabId, text: '…' });
   await renderCard(tabId, { state: 'working', message: 'Clipping this page…' });
   try {
     const clip = await extractClip(tabId);
-    const bytes = new TextEncoder().encode(JSON.stringify(clip)).length;
-    if (bytes > MAX_CLIP_BYTES) {
-      const mb = (bytes / (1024 * 1024)).toFixed(1);
-      throw new Error(
-        `This clip is ${mb} MB — over the 2 MB limit. Try clipping a shorter page.`,
-      );
-    }
-    // Buffer now, before the user confirms: the service worker may be torn down
-    // between the preview and the "Send" click, and the analyze handoff reads
-    // the clip from session storage regardless. The token stamps this clip as
-    // the buffer's current occupant so a Send/dismiss from an older card (a
-    // second tab clipped after this one) is refused rather than acting on the
-    // wrong clip. Dismiss of the matching card clears it.
-    const token = crypto.randomUUID();
-    await chrome.storage.session.set({
-      [STORAGE_KEY_PENDING_CLIP]: clip,
-      [STORAGE_KEY_PENDING_TOKEN]: token,
-    });
+    const token = await bufferClip(clip);
     await chrome.action.setBadgeText({ tabId, text: '' });
     await renderCard(tabId, previewCard(clip, token));
   } catch (err) {
+    // Chrome's PDF viewer rejects injection, so a PDF served from a non-.pdf
+    // path (a download endpoint, say) lands here rather than in the fast path
+    // above — sniff the response and reroute instead of erroring.
+    if (err instanceof InjectionError && (await sniffIsPdf(url))) {
+      await handlePdfClip(tabId, url);
+      return;
+    }
     await chrome.action.setBadgeText({ tabId, text: '!' });
     console.error('[askfutures-clipper]', err);
     await renderCard(tabId, {
@@ -103,6 +105,34 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
     });
   }
 }
+
+// Size-check and buffer a clip, before the user confirms: the service worker
+// may be torn down between the preview and the "Send" click, and the analyze
+// handoff reads the clip from session storage regardless. The returned token
+// stamps this clip as the buffer's current occupant so a Send/dismiss from an
+// older card (a second tab clipped after this one) is refused rather than
+// acting on the wrong clip. Dismiss of the matching card clears it.
+async function bufferClip(clip: Clip): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(clip)).length;
+  if (bytes > MAX_CLIP_BYTES) {
+    const mb = (bytes / (1024 * 1024)).toFixed(1);
+    throw new Error(
+      `This clip is ${mb} MB — over the 2 MB limit. Try clipping a shorter page.`,
+    );
+  }
+  const token = crypto.randomUUID();
+  await chrome.storage.session.set({
+    [STORAGE_KEY_PENDING_CLIP]: clip,
+    [STORAGE_KEY_PENDING_TOKEN]: token,
+  });
+  return token;
+}
+
+// executeScript itself failed — the tab won't take injection at all (Chrome's
+// PDF viewer, an error page), as opposed to the extractor running and finding
+// nothing. handleClick uses this to tell "can't inject" from "nothing to
+// clip" before falling back to the PDF sniff.
+class InjectionError extends Error {}
 
 async function extractClip(tabId: number): Promise<Clip> {
   // Two steps: load the bundle (defines window.__askfuturesExtract), then call
@@ -114,14 +144,19 @@ async function extractClip(tabId: number): Promise<Clip> {
   // world. The extractor never rejects; it resolves to an
   // { ok, clip | error } envelope because executeScript swallows in-page
   // exceptions.
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ['extractor.js'],
-  });
-  const [injection] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => window.__askfuturesExtract(),
-  });
+  let injection: chrome.scripting.InjectionResult<Awaited<ReturnType<Window['__askfuturesExtract']>>>;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['extractor.js'],
+    });
+    [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.__askfuturesExtract(),
+    });
+  } catch (err) {
+    throw new InjectionError(err instanceof Error ? err.message : String(err));
+  }
   const outcome = injection.result;
   if (!outcome) {
     throw new Error('Extraction returned nothing — is this a regular web page?');
@@ -130,6 +165,142 @@ async function extractClip(tabId: number): Promise<Clip> {
     throw new Error(outcome.error);
   }
   return outcome.clip;
+}
+
+// ---------------------------------------------------------------------------
+// PDF clipping. See the header comment: no injection works on a PDF tab, so
+// extraction runs in an offscreen document and there is no preview card — the
+// toolbar click is the confirmation and /analyze opens directly.
+
+// Mirrors extractor.ts's EXTRACT_TIMEOUT_MS, covering the whole fetch+parse.
+const PDF_TIMEOUT_MS = 45_000;
+
+const DEFAULT_ACTION_TITLE = 'Clip to AskFutures';
+
+// Fast path: a URL whose path names a .pdf. PDFs served from other paths are
+// caught by the injection-failure sniff in handleClick.
+function isPdfUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return false;
+  }
+}
+
+// Authoritative check once injection has failed: decide by Content-Type or
+// the %PDF- magic bytes. The activeTab grant from the click covers this
+// fetch. Ranged so a hit costs a few bytes; servers that ignore Range just
+// get their stream cancelled.
+async function sniffIsPdf(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      headers: { range: 'bytes=0-4' },
+      credentials: 'include',
+    });
+    if (!res.ok || !res.body) {
+      return false;
+    }
+    if (/application\/pdf/i.test(res.headers.get('content-type') ?? '')) {
+      void res.body.cancel().catch(() => {});
+      return true;
+    }
+    const reader = res.body.getReader();
+    const { value } = await reader.read();
+    void reader.cancel().catch(() => {});
+    return new TextDecoder().decode((value ?? new Uint8Array()).slice(0, 5)) === '%PDF-';
+  } catch {
+    return false;
+  }
+}
+
+async function handlePdfClip(tabId: number, url: string): Promise<void> {
+  await chrome.action.setBadgeText({ tabId, text: '…' });
+  try {
+    const clip = await extractPdfClip(url);
+    await bufferClip(clip);
+    await openOrFocusAnalyzeTab();
+    await chrome.action.setBadgeText({ tabId, text: '' });
+    await chrome.action.setTitle({ tabId, title: DEFAULT_ACTION_TITLE });
+  } catch (err) {
+    console.error('[askfutures-clipper]', err);
+    await chrome.action.setBadgeText({ tabId, text: '!' });
+    // No card can render on a PDF tab; the hover title carries the message.
+    await chrome.action.setTitle({
+      tabId,
+      title: `Couldn't clip this PDF — ${err instanceof Error ? err.message : 'clipping failed.'}`,
+    });
+  }
+}
+
+// Extractions currently sharing the single offscreen document. Two tabs can be
+// clipped in quick succession and reuse the same document; it must be closed
+// only when the *last* one finishes, or a completing clip would tear the
+// document out from under one still mid-parse. Incremented before ensuring the
+// document so a concurrent clip's increment is already visible when this one's
+// finally runs (both are synchronous at call entry — no await between).
+let pdfClipsInFlight = 0;
+
+async function extractPdfClip(url: string): Promise<Clip> {
+  pdfClipsInFlight++;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await ensureOffscreenDocument();
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error('Timed out reading this PDF.')),
+        PDF_TIMEOUT_MS,
+      );
+    });
+    const request = chrome.runtime.sendMessage({
+      type: RUNTIME_MSG.extractPdf,
+      target: 'offscreen',
+      url,
+    }) as Promise<PdfExtractOutcome | undefined>;
+    // If the timeout wins the race, this promise is abandoned and later
+    // rejects when closing the document severs the port; swallow that so it
+    // isn't an unhandled rejection.
+    request.catch(() => {});
+    const outcome = await Promise.race([request, timeout]);
+    if (!outcome) {
+      throw new Error('PDF extraction returned nothing.');
+    }
+    if (!outcome.ok) {
+      throw new Error(outcome.error);
+    }
+    return outcome.clip;
+  } finally {
+    clearTimeout(timer);
+    if (--pdfClipsInFlight === 0) {
+      await chrome.offscreen.closeDocument().catch(() => {});
+    }
+  }
+}
+
+// pdf.js needs worker + DOM APIs the service worker lacks, and can't be
+// lazily imported here anyway (no dynamic import in service workers), so it
+// lives in an offscreen document created per clip and closed again by
+// extractPdfClip once the last in-flight clip finishes. createDocument can
+// race a concurrent click; losing that race ("only a single offscreen
+// document") is fine — one exists.
+async function ensureOffscreenDocument(): Promise<void> {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+  });
+  if (contexts.length > 0) {
+    return;
+  }
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: [chrome.offscreen.Reason.WORKERS, chrome.offscreen.Reason.DOM_PARSER],
+      justification:
+        'Extract the text of a clipped PDF with pdf.js, which needs worker and DOM APIs unavailable in the service worker.',
+    });
+  } catch (err) {
+    if (!String(err).toLowerCase().includes('single offscreen')) {
+      throw err;
+    }
+  }
 }
 
 async function openOrFocusAnalyzeTab(): Promise<void> {
@@ -425,6 +596,8 @@ function brandFor(clip: Clip): {
 function wordCountLabel(clip: Clip): string {
   const words = clip.content_markdown.trim().split(/\s+/).filter(Boolean).length;
   const n = new Intl.NumberFormat('en-US').format(words);
+  // Only the non-PDF path renders a card (PDF tabs can't host the overlay),
+  // so clip.kind is 'youtube' or 'article' here.
   const kind = clip.kind === 'youtube' ? 'full transcript' : 'article';
   return `${n} words · ${kind}`;
 }

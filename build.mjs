@@ -40,6 +40,25 @@ await esbuild.build({
   },
 });
 
+// The PDF extractor runs in an offscreen document (Chrome blocks injection
+// into its PDF viewer, and the service worker can't lazily import pdf.js).
+// ESM, not iife: pdf.js uses top-level await; offscreen.html loads the bundle
+// with <script type="module">. The worker file is upstream's own artifact,
+// copied verbatim so it stays byte-verifiable against the pinned npm package.
+await esbuild.build({
+  ...common,
+  format: 'esm',
+  entryPoints: ['src/offscreen.ts'],
+  banner: {
+    js: '/*! askfutures-clipper pdf extractor — bundles pdf.js (Apache-2.0, https://github.com/mozilla/pdf.js) */',
+  },
+});
+
 cpSync('src/manifest.json', 'dist/manifest.json');
 cpSync('src/sidepanel.html', 'dist/sidepanel.html');
+cpSync('src/offscreen.html', 'dist/offscreen.html');
+cpSync(
+  'node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+  'dist/pdf.worker.min.mjs',
+);
 cpSync('src/icons', 'dist/icons', { recursive: true });

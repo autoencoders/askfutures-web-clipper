@@ -229,13 +229,22 @@ async function sniffIsPdf(url: string): Promise<boolean> {
 async function handlePdfClip(tabId: number, url: string): Promise<void> {
   await chrome.action.setBadgeText({ tabId, text: '…' });
   try {
+    // Step logs so a failure in the service-worker console points at the exact
+    // stage (download / parse / buffer) rather than just the final message.
+    console.info('[askfutures-clipper] PDF clip: start', url);
     const clip = await extractPdfClip(url);
+    console.info(
+      '[askfutures-clipper] PDF clip: extracted',
+      `${clip.content_markdown.length} chars`,
+      clip.title,
+    );
     await bufferClip(clip);
     await openOrFocusAnalyzeTab();
+    console.info('[askfutures-clipper] PDF clip: buffered and opened /analyze');
     await chrome.action.setBadgeText({ tabId, text: '' });
     await chrome.action.setTitle({ tabId, title: DEFAULT_ACTION_TITLE });
   } catch (err) {
-    console.error('[askfutures-clipper]', err);
+    console.error('[askfutures-clipper] PDF clip failed', err);
     await chrome.action.setBadgeText({ tabId, text: '!' });
     // No card can render on a PDF tab; the hover title carries the message.
     await chrome.action.setTitle({
@@ -254,7 +263,9 @@ async function handlePdfClip(tabId: number, url: string): Promise<void> {
 let pdfClipsInFlight = 0;
 
 async function extractPdfClip(url: string): Promise<Clip> {
-  const dataBase64 = bytesToBase64(await downloadPdf(url));
+  const bytes = await downloadPdf(url);
+  console.info('[askfutures-clipper] PDF clip: downloaded', `${bytes.length} bytes`);
+  const dataBase64 = bytesToBase64(bytes);
   pdfClipsInFlight++;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -301,10 +312,20 @@ async function downloadPdf(url: string): Promise<Uint8Array> {
   let res: Response;
   try {
     res = await fetch(url, { credentials: 'include' });
-  } catch {
+  } catch (err) {
+    // The friendly message goes to the badge tooltip; the real cause (a CORS
+    // TypeError, a network error) only shows here, so log it — otherwise the
+    // failure is undiagnosable.
+    console.error('[askfutures-clipper] PDF fetch threw', url, err);
     throw new Error(PDF_FETCH_ERROR);
   }
   if (!res.ok || !res.body) {
+    console.error(
+      '[askfutures-clipper] PDF fetch not ok',
+      res.status,
+      res.statusText,
+      res.type, // "opaque" here means a no-cors response we can't read
+    );
     throw new Error(PDF_FETCH_ERROR);
   }
   const declared = Number(res.headers.get('content-length'));

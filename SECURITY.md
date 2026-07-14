@@ -68,6 +68,61 @@ video id, so `thumbnail_url` matters mainly for articles.
 
 The extension refuses payloads over 2 MB.
 
+## The chart-context messages (side panel)
+
+On charting sites the toolbar click opens askfutures.com in the extension's
+side panel instead of clipping. There, the panel page scrapes a snapshot of
+the chart next to it — ticker, timeframe, indicators with their last values,
+last price — and posts it into the askfutures.com iframe:
+
+```
+panel → iframe   { type: "askfutures-chart-context", payload: { … } }
+iframe → panel   { type: "askfutures-chart-context-request" }
+```
+
+Rules:
+
+- **Origin-checked both ways.** The panel posts only to
+  `https://askfutures.com` (the iframe's origin) and accepts a request only
+  when `event.origin` is `https://askfutures.com` and `event.source` is the
+  iframe's window. The page inside the iframe should likewise check that the
+  context message comes from its parent extension page.
+- **Snapshots, fire-and-forget.** No ack or nonce: chart context is
+  re-derivable at any time, so a lost message costs nothing — the page just
+  posts `askfutures-chart-context-request` and gets a fresh snapshot. There is
+  no live observation of the chart; every snapshot is an explicit scrape.
+- **Scoped scraping.** The scrape runs only in the tab the panel was opened
+  against, only on `gocharting.com` today, and only under the `activeTab`
+  grant the opening click produced. The service worker refuses requests for
+  any other tab or site, and only extension pages (never content scripts) may
+  request a scrape.
+- **Validation.** The page treats the payload as untrusted input, like a clip.
+
+### Chart-context payload (v1)
+
+```jsonc
+{
+  "v": 1,
+  "source": "gocharting",
+  "source_url": "https://gocharting.com/terminal?ticker=CME:ES1%21",
+  "ticker": "CME:ES1!",                // nullable; from the tab URL, legend fallback
+  "timeframe": "30m",                  // nullable; from the chart legend
+  "last_close": 7586.25,               // nullable; C of the current bar, tab-title fallback
+  "ohlc": {                            // nullable; the legend's current bar
+    "open": 7586.75, "high": 7590.0, "low": 7584.75, "close": 7586.25
+  },
+  "indicators": [                      // possibly empty; the study legend rows
+    { "name": "EMA", "params": "20", "values": [7581.25] },
+    { "name": "MACD", "params": "12, 26, 9", "values": [-3.2, 1.1, -4.3] }
+  ],
+  "scraped_at": "2026-07-13T14:05:00Z" // ISO-8601 UTC, extension clock
+}
+```
+
+Every scraped field is nullable and the snapshot degrades per field: the DOM
+scrape is regex-over-legend-text with no stable contract from GoCharting, so a
+redesign silently empties fields rather than erroring.
+
 ## Trust model
 
 - **The page trusts nothing.** Anything on the web can postMessage at
@@ -78,9 +133,13 @@ The extension refuses payloads over 2 MB.
 - **The extension holds no secrets.** It never authenticates — the
   askfutures.com session in the browser is the only auth. There are no tokens,
   keys, or accounts in the extension or this repository.
-- **Minimal reach.** `activeTab` means the extension can read a page only in
-  direct response to the user's click on that page; there are no broad host
-  permissions and no background browsing access. The one host permission
+- **Minimal reach.** `activeTab` means the extension can read a page only
+  after the user's click on that page; there are no broad host permissions and
+  no background browsing access. The grant persists for the clicked tab until
+  it navigates elsewhere — that is what lets the side panel refresh a chart
+  snapshot on request — but it never extends to other tabs or sites. Chart
+  context is read only on charting sites the user opened the panel on, and is
+  sent only to askfutures.com. The one host permission
   (`https://*.askfutures.com/*`) exists to inject the handoff content script
   above and to let the askfutures.com session work inside the extension's side
   panel (auth cookies live on `clerk.askfutures.com`, so the pattern covers

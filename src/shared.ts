@@ -22,6 +22,11 @@ export const PAGE_MSG = {
   ready: 'askfutures-analyze-ready',
   clip: 'askfutures-clip',
   clipAck: 'askfutures-clip-ack',
+  // Side-panel chart-context bridge (panel page <-> the askfutures.com iframe
+  // inside it): the panel posts a ChartContext snapshot into the iframe; the
+  // page may post a request back for a fresh one. See SECURITY.md.
+  chartContext: 'askfutures-chart-context',
+  chartContextRequest: 'askfutures-chart-context-request',
 } as const;
 
 // chrome.runtime message types (content script <-> service worker).
@@ -35,6 +40,13 @@ export const RUNTIME_MSG = {
   // sender.id only — see background.ts.
   sendClip: 'send-clip',
   dismissClip: 'dismiss-clip',
+  // Side panel → service worker: scrape the chart tab the panel sits next to
+  // and respond with a ChartContext snapshot. Extension pages only.
+  getChartContext: 'get-chart-context',
+  // Service worker → side panel: the toolbar was clicked on this tab while a
+  // panel may already be open for it — re-scrape. Makes the toolbar icon
+  // double as a refresh button.
+  chartContextPing: 'chart-context-ping',
 } as const;
 
 // v1 clip payload — the contract both repos share (plan doc § "Clip payload").
@@ -59,4 +71,33 @@ export interface Clip {
   // For an article this is the only image source; for YouTube the server can
   // also derive it from the video id. Absolute URL or null. Never required.
   thumbnail_url: string | null;
+}
+
+// v1 chart-context snapshot — what the side panel scrapes from the charting
+// site it sits next to and hands to askfutures.com (see
+// design/gocharting-chart-context.md and SECURITY.md). Every field the DOM
+// scrape feeds is nullable: legend selectors can break silently, and the
+// snapshot degrades per field (the ticker comes from the tab URL and the last
+// price from the tab title, so those usually survive).
+export interface ChartIndicator {
+  name: string; // "EMA", "VWAP", "MACD"
+  params: string | null; // display parameters as shown, e.g. "20" or "12, 26, 9"
+  values: number[]; // last rendered value(s); multi-output studies have several
+}
+
+export interface ChartContext {
+  v: 1;
+  source: 'gocharting';
+  source_url: string;
+  ticker: string | null; // "CME:ES1!"
+  timeframe: string | null; // "30m", "4h", "1D", …
+  last_close: number | null; // C of the in-progress bar = live last price
+  ohlc: {
+    open: number | null;
+    high: number | null;
+    low: number | null;
+    close: number | null;
+  } | null;
+  indicators: ChartIndicator[];
+  scraped_at: string; // ISO-8601 UTC, extension clock
 }

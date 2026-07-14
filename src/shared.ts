@@ -98,7 +98,7 @@ export interface ChartIndicator {
 
 export interface ChartContext {
   v: 1;
-  source: 'gocharting';
+  source: 'gocharting' | 'tradingview';
   source_url: string;
   ticker: string | null; // "CME:ES1!"
   timeframe: string | null; // "30m", "4h", "1D", …
@@ -111,4 +111,33 @@ export interface ChartContext {
   } | null;
   indicators: ChartIndicator[];
   scraped_at: string; // ISO-8601 UTC, extension clock
+}
+
+// The partial context a per-site scraper reads from the page (isolated world)
+// and hands back to the service worker, which merges in the ticker (from the
+// tab URL) and last price (from the tab title) and stamps the envelope. Shared
+// by src/gocharting.ts and src/tradingview.ts; each defines the same
+// window.__askfuturesChartScrape entry point, so the worker calls it uniformly.
+export interface ChartScrape {
+  ticker: string | null;
+  timeframe: string | null;
+  ohlc: {
+    open: number | null;
+    high: number | null;
+    low: number | null;
+    close: number | null;
+  } | null;
+  indicators: ChartIndicator[];
+}
+
+// executeScript swallows in-page exceptions (the result becomes null), so the
+// scraper always returns this envelope and the worker unwraps it.
+export type ChartScrapeOutcome =
+  | { ok: true; scrape: ChartScrape }
+  | { ok: false; error: string };
+
+declare global {
+  interface Window {
+    __askfuturesChartScrape: () => ChartScrapeOutcome;
+  }
 }

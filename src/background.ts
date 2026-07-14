@@ -429,10 +429,11 @@ async function handleGetChartContext(
     const tab = await chrome.tabs.get(tabId);
     // Without the activeTab grant tab.url is invisible and this refuses —
     // scraping is only ever attempted where injection is already permitted.
-    if (!isChartScrapeUrl(tab.url)) {
+    const site = chartSiteFor(tab.url);
+    if (!site) {
       throw new Error('Not a supported chart tab.');
     }
-    sendResponse({ ok: true, context: await scrapeChartContext(tabId, tab) });
+    sendResponse({ ok: true, context: await scrapeChartContext(tabId, tab, site) });
   } catch (err) {
     sendResponse({
       ok: false,
@@ -441,33 +442,64 @@ async function handleGetChartContext(
   }
 }
 
-// Chart scraping is per-site and only gocharting.com has a scraper today (the
-// other SIDE_PANEL_DOMAINS still get the plain panel, no context).
-function isChartScrapeUrl(url: string | undefined): boolean {
-  if (!url) return false;
+// Per-site chart scraping. Each entry owns the parts that differ by site — the
+// injected scraper bundle, how the ticker is read from the URL, and how the
+// last price is read from the tab title — while the DOM scrape returns a common
+// ChartScrape shape through the shared window.__askfuturesChartScrape entry.
+// Sites not listed here still get the plain side panel, just no chart context.
+interface ChartSite {
+  source: ChartContext['source'];
+  scraperFile: string;
+  matchesHost: (hostname: string) => boolean;
+  tickerFromUrl: (url: string) => string | null;
+  lastPriceFromTitle: (title: string | undefined) => number | null;
+}
+
+const CHART_SITES: ChartSite[] = [
+  {
+    source: 'gocharting',
+    scraperFile: 'gocharting.js',
+    matchesHost: (h) => h === 'gocharting.com' || h.endsWith('.gocharting.com'),
+    // gocharting.com/terminal?ticker=CME:ES1%21 → "CME:ES1!"
+    tickerFromUrl: (url) => urlParam(url, 'ticker'),
+    // GoCharting's tab title leads with the live price: "7515.5 (-0.48%) @ …".
+    lastPriceFromTitle: (title) => firstNumber(/^\s*(-?[\d,]+(?:\.\d+)?)\s*\(/, title),
+  },
+  {
+    source: 'tradingview',
+    scraperFile: 'tradingview.js',
+    matchesHost: (h) => h === 'tradingview.com' || h.endsWith('.tradingview.com'),
+    // tradingview.com/chart/…/?symbol=CME_MINI%3AES1%21 → "CME_MINI:ES1!"
+    tickerFromUrl: (url) => urlParam(url, 'symbol'),
+    // TradingView's tab title: "ES1! 7,591.50 ▲ +0.38% …" — the price sits
+    // before the up/down arrow (the symbol may contain digits, so anchor on it).
+    lastPriceFromTitle: (title) => firstNumber(/([\d,]+(?:\.\d+)?)\s*[▲▼△▽]/, title),
+  },
+];
+
+function chartSiteFor(url: string | undefined): ChartSite | null {
+  if (!url) return null;
   try {
     const { protocol, hostname } = new URL(url);
-    return (
-      /^https?:$/.test(protocol) &&
-      (hostname === 'gocharting.com' || hostname.endsWith('.gocharting.com'))
-    );
+    if (!/^https?:$/.test(protocol)) return null;
+    return CHART_SITES.find((s) => s.matchesHost(hostname)) ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-// Same two-step injection as extractClip: load the bundle (defines
+// Same two-step injection as extractClip: load the site's bundle (defines
 // window.__askfuturesChartScrape), then call it. The DOM scrape fails soft —
-// the tab URL still yields the ticker and the tab title the last price
-// ("7515.5 (-0.48%) @ CME:ES1!"), so a broken legend selector degrades the
-// snapshot instead of emptying it.
+// the tab URL still yields the ticker and the tab title the last price, so a
+// broken legend selector degrades the snapshot instead of emptying it.
 async function scrapeChartContext(
   tabId: number,
   tab: chrome.tabs.Tab,
+  site: ChartSite,
 ): Promise<ChartContext> {
   await chrome.scripting.executeScript({
     target: { tabId },
-    files: ['gocharting.js'],
+    files: [site.scraperFile],
   });
   const [injection] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -478,29 +510,27 @@ async function scrapeChartContext(
   const url = tab.url ?? '';
   return {
     v: 1,
-    source: 'gocharting',
+    source: site.source,
     source_url: url,
-    ticker: tickerFromUrl(url) ?? scrape?.ticker ?? null,
+    ticker: site.tickerFromUrl(url) ?? scrape?.ticker ?? null,
     timeframe: scrape?.timeframe ?? null,
-    last_close: scrape?.ohlc?.close ?? lastPriceFromTitle(tab.title),
+    last_close: scrape?.ohlc?.close ?? site.lastPriceFromTitle(tab.title),
     ohlc: scrape?.ohlc ?? null,
     indicators: scrape?.indicators ?? [],
     scraped_at: new Date().toISOString(),
   };
 }
 
-// gocharting.com/terminal?ticker=CME:ES1%21 → "CME:ES1!"
-function tickerFromUrl(url: string): string | null {
+function urlParam(url: string, name: string): string | null {
   try {
-    return new URL(url).searchParams.get('ticker')?.trim() || null;
+    return new URL(url).searchParams.get(name)?.trim() || null;
   } catch {
     return null;
   }
 }
 
-// GoCharting's tab title leads with the live price: "7515.5 (-0.48%) @ …".
-function lastPriceFromTitle(title: string | undefined): number | null {
-  const m = /^\s*(-?[\d,]+(?:\.\d+)?)\s*\(/.exec(title ?? '');
+function firstNumber(re: RegExp, text: string | undefined): number | null {
+  const m = re.exec(text ?? '');
   if (!m) return null;
   const n = Number(m[1].replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;

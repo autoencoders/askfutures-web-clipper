@@ -17,33 +17,7 @@
 // visible bar; the true latest bar is canvas-only and not readable here. See
 // the "Known limitation" note in the design doc — not worked around by design.
 
-import type { ChartIndicator } from './shared';
-
-// Partial context from the DOM; the service worker merges in what the tab URL
-// and title provide and stamps the envelope fields.
-export interface ChartScrape {
-  ticker: string | null;
-  timeframe: string | null;
-  ohlc: {
-    open: number | null;
-    high: number | null;
-    low: number | null;
-    close: number | null;
-  } | null;
-  indicators: ChartIndicator[];
-}
-
-// executeScript does not propagate in-page exceptions to the caller, so the
-// call always returns this envelope and the service worker unwraps it.
-export type ChartScrapeOutcome =
-  | { ok: true; scrape: ChartScrape }
-  | { ok: false; error: string };
-
-declare global {
-  interface Window {
-    __askfuturesChartScrape: () => ChartScrapeOutcome;
-  }
-}
+import type { ChartIndicator, ChartScrape } from './shared';
 
 window.__askfuturesChartScrape = () => {
   try {

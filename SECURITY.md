@@ -92,10 +92,10 @@ Rules:
   posts `askfutures-chart-context-request` and gets a fresh snapshot. There is
   no live observation of the chart; every snapshot is an explicit scrape.
 - **Scoped scraping.** The scrape runs only in the tab the panel was opened
-  against, only on `gocharting.com` today, and only under the `activeTab`
-  grant the opening click produced. The service worker refuses requests for
-  any other tab or site, and only extension pages (never content scripts) may
-  request a scrape.
+  against, only on sites with a scraper (`gocharting.com` and
+  `tradingview.com` today), and only under the `activeTab` grant the opening
+  click produced. The service worker refuses requests for any other tab or
+  site, and only extension pages (never content scripts) may request a scrape.
 - **Validation.** The page treats the payload as untrusted input, like a clip.
 
 ### Chart-context payload (v1)
@@ -103,7 +103,7 @@ Rules:
 ```jsonc
 {
   "v": 1,
-  "source": "gocharting",
+  "source": "gocharting",              // or "tradingview"
   "source_url": "https://gocharting.com/terminal?ticker=CME:ES1%21",
   "ticker": "CME:ES1!",                // nullable; from the tab URL, legend fallback
   "timeframe": "30m",                  // nullable; from the chart legend

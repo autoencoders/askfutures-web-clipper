@@ -1,6 +1,12 @@
 # GoCharting chart context in the side panel
 
-Status: design / feasibility — not implemented.
+Status: first cut implemented — snapshot at panel open plus on-demand refresh
+(`src/gocharting.ts`, `src/sidepanel.ts`; contract in SECURITY.md). The
+snapshot also parses each study row's last value(s) and the last close, which
+this doc's scraping section predates. Live updates (the observer section
+below) are out of scope for now. The selectors-by-text approach still needs
+validation against a real GoCharting session — see "Verify before committing"
+below.
 
 On charting sites (`SIDE_PANEL_DOMAINS` in `src/background.ts`) the toolbar
 click opens the AskFutures side panel instead of clipping. Today the panel
@@ -31,6 +37,23 @@ The legend is plain text in the DOM, so a regex like `\(([0-9]+[mhDWM])\)`
 against it is fairly robust even if GoCharting's (minified) class names
 churn. As a side effect the legend also yields the last bar's OHLCV and open
 interest, and the bottom bar exposes the ETH/RTH session toggle state.
+
+**Known limitation — the legend follows the viewport, not "latest".** The
+O/H/L/C and per-study values in the legend are those of the bar under the
+crosshair, or of the last *visible* bar when the chart is scrolled back in
+time — not necessarily the most recent bar. When the newest bar is scrolled
+off-screen, its values live only on the canvas and are not in the DOM to read.
+So `last_close`, `ohlc`, and every indicator's `values` are correct only when
+the chart is parked at the latest bar (the normal case); a scrolled-back chart
+yields stale-but-internally-consistent values from the visible bar. Confirmed
+on a live session: dispatching `mouseleave`/`mouseout` on the chart canvas
+does **not** reset the legend to the latest bar, and GoCharting exposes no
+scroll-to-realtime control that leaves the zoom untouched — only `Reset
+[Home]`, which also rescales. Deliberately not worked around: forcing the view
+would disturb the user's chart, and reading the true latest bar would require
+tapping GoCharting's in-page data model (MAIN-world injection + schema
+reversing). A future, more robust path is that data model or the persisted
+`GochartingInitialState.RootStore` layout, not the legend.
 
 ### Indicators — doable, most brittle
 

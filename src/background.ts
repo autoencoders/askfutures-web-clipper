@@ -14,6 +14,7 @@ import {
   ANALYZE_URL,
   ANALYZE_URL_PATTERN,
   ASKFUTURES_ORIGIN,
+  ChartContext,
   Clip,
   MAX_CLIP_BYTES,
   RUNTIME_MSG,
@@ -38,6 +39,13 @@ chrome.action.onClicked.addListener((tab) => {
   // chrome.sidePanel guard falls back to the clip flow on Chrome < 114.
   if (tab.id !== undefined && isSidePanelUrl(tab.url) && chrome.sidePanel) {
     void chrome.sidePanel.open({ tabId: tab.id });
+    // If a panel is already open for this tab, nudge it to re-scrape the
+    // chart — the toolbar click doubles as a refresh. A just-opened panel has
+    // no listener yet; its load-time scrape covers that case (hence the
+    // swallowed "no receiver" error).
+    chrome.runtime
+      .sendMessage({ type: RUNTIME_MSG.chartContextPing, tabId: tab.id })
+      .catch(() => {});
     return;
   }
   void handleClick(tab);
@@ -164,6 +172,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  // Chart-context requests come from the side panel — an extension page, so
+  // no sender.tab (content scripts always have one). The worker scrapes the
+  // chart tab on demand: activeTab was granted by the toolbar click that
+  // opened the panel, and the grant outlives the click, so refresh requests
+  // keep working until the tab navigates elsewhere.
+  if (message?.type === RUNTIME_MSG.getChartContext) {
+    if (sender.tab) {
+      return;
+    }
+    void handleGetChartContext(message.tabId, sendResponse);
+    return true; // async sendResponse below
+  }
+
   // Buffer access is askfutures.com-only.
   if (senderOrigin(sender) !== ASKFUTURES_ORIGIN) {
     return;
@@ -219,6 +240,99 @@ async function handleDismissClip(token: unknown): Promise<void> {
 
 function senderOrigin(sender: chrome.runtime.MessageSender): string | null {
   return sender.url ? new URL(sender.url).origin : null;
+}
+
+// Scrape the chart tab and answer the side panel with a ChartContext snapshot
+// (design/gocharting-chart-context.md). Fails as an { ok: false } response —
+// never a thrown error — so the panel can degrade to a plain askfutures view.
+async function handleGetChartContext(
+  tabId: unknown,
+  sendResponse: (
+    response: { ok: true; context: ChartContext } | { ok: false; error: string },
+  ) => void,
+): Promise<void> {
+  try {
+    if (typeof tabId !== 'number') {
+      throw new Error('Bad tab id.');
+    }
+    const tab = await chrome.tabs.get(tabId);
+    // Without the activeTab grant tab.url is invisible and this refuses —
+    // scraping is only ever attempted where injection is already permitted.
+    if (!isChartScrapeUrl(tab.url)) {
+      throw new Error('Not a supported chart tab.');
+    }
+    sendResponse({ ok: true, context: await scrapeChartContext(tabId, tab) });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+// Chart scraping is per-site and only gocharting.com has a scraper today (the
+// other SIDE_PANEL_DOMAINS still get the plain panel, no context).
+function isChartScrapeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    return (
+      /^https?:$/.test(protocol) &&
+      (hostname === 'gocharting.com' || hostname.endsWith('.gocharting.com'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+// Same two-step injection as extractClip: load the bundle (defines
+// window.__askfuturesChartScrape), then call it. The DOM scrape fails soft —
+// the tab URL still yields the ticker and the tab title the last price
+// ("7515.5 (-0.48%) @ CME:ES1!"), so a broken legend selector degrades the
+// snapshot instead of emptying it.
+async function scrapeChartContext(
+  tabId: number,
+  tab: chrome.tabs.Tab,
+): Promise<ChartContext> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ['gocharting.js'],
+  });
+  const [injection] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => window.__askfuturesChartScrape(),
+  });
+  const outcome = injection.result;
+  const scrape = outcome?.ok ? outcome.scrape : null;
+  const url = tab.url ?? '';
+  return {
+    v: 1,
+    source: 'gocharting',
+    source_url: url,
+    ticker: tickerFromUrl(url) ?? scrape?.ticker ?? null,
+    timeframe: scrape?.timeframe ?? null,
+    last_close: scrape?.ohlc?.close ?? lastPriceFromTitle(tab.title),
+    ohlc: scrape?.ohlc ?? null,
+    indicators: scrape?.indicators ?? [],
+    scraped_at: new Date().toISOString(),
+  };
+}
+
+// gocharting.com/terminal?ticker=CME:ES1%21 → "CME:ES1!"
+function tickerFromUrl(url: string): string | null {
+  try {
+    return new URL(url).searchParams.get('ticker')?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// GoCharting's tab title leads with the live price: "7515.5 (-0.48%) @ …".
+function lastPriceFromTitle(title: string | undefined): number | null {
+  const m = /^\s*(-?[\d,]+(?:\.\d+)?)\s*\(/.exec(title ?? '');
+  if (!m) return null;
+  const n = Number(m[1].replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
 }
 
 // Everything the injected overlay needs, computed here (the service worker can

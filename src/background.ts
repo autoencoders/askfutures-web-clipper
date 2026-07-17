@@ -13,8 +13,9 @@
 // - On PDF tabs (Chrome's viewer rejects script injection, so neither the
 //   extractor nor the preview card can run there) extraction happens in a
 //   short-lived offscreen document and the click itself is the confirmation:
-//   the clip is buffered and /analyze opens directly, no card. Errors surface
-//   as badge '!' plus the action's hover title.
+//   the clip is buffered and /analyze opens directly, no card. Feedback goes
+//   through a system notification instead — the word count on success, the
+//   reason on failure — plus badge '!' and the action's hover title on errors.
 
 import {
   ANALYZE_URL,
@@ -73,7 +74,14 @@ function isSidePanelUrl(url: string | undefined): boolean {
 
 async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
   if (tab.id === undefined || !tab.url || !/^https?:/.test(tab.url)) {
-    // chrome:// pages, the Web Store, etc. — nothing can be injected there.
+    // chrome:// pages, the Web Store, file:// downloads — nothing can be
+    // injected or fetched there. Say so instead of failing silently.
+    await notify(
+      "Can't clip this page",
+      tab.url?.startsWith('file:')
+        ? 'This file is on your computer — Chrome only lets the clipper read pages and PDFs served from the web. Try clipping it from the site it came from.'
+        : 'Only regular web pages can be clipped.',
+    );
     return;
   }
   const tabId = tab.id;
@@ -99,10 +107,35 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
     }
     await chrome.action.setBadgeText({ tabId, text: '!' });
     console.error('[askfutures-clipper]', err);
-    await renderCard(tabId, {
-      state: 'error',
-      message: err instanceof Error ? err.message : 'Clipping failed.',
+    const message = err instanceof Error ? err.message : 'Clipping failed.';
+    const shown = await renderCard(tabId, { state: 'error', message });
+    if (!shown) {
+      // The tab wouldn't take the error card either (an error page, a viewer
+      // that rejects injection) — fall back to a notification so the failure
+      // is more than a badge.
+      await notify("Couldn't clip this page", message);
+    }
+  }
+}
+
+// PDF tabs (and other non-injectable pages) can't host the preview-card
+// overlay, so their feedback goes through a system notification. One fixed id
+// so a new clip's status replaces the previous notification instead of
+// stacking; cleared first so the replacement re-alerts.
+const NOTIFICATION_ID = 'askfutures-clip-status';
+
+async function notify(title: string, message: string): Promise<void> {
+  try {
+    await chrome.notifications.clear(NOTIFICATION_ID);
+    await chrome.notifications.create(NOTIFICATION_ID, {
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png'),
+      title,
+      message,
     });
+  } catch (err) {
+    // Best-effort: the badge and console still carry state.
+    console.error('[askfutures-clipper] notification failed', err);
   }
 }
 
@@ -243,14 +276,23 @@ async function handlePdfClip(tabId: number, url: string): Promise<void> {
     console.info('[askfutures-clipper] PDF clip: buffered and opened /analyze');
     await chrome.action.setBadgeText({ tabId, text: '' });
     await chrome.action.setTitle({ tabId, title: DEFAULT_ACTION_TITLE });
+    // The word-count confirmation the preview card gives on regular pages —
+    // a PDF tab can't host the card, so it arrives as a notification.
+    await notify(
+      `Sending ${formatWordCount(clip.content_markdown)} words to AskFutures`,
+      clip.title?.trim() || 'PDF clipped',
+    );
   } catch (err) {
     console.error('[askfutures-clipper] PDF clip failed', err);
     await chrome.action.setBadgeText({ tabId, text: '!' });
-    // No card can render on a PDF tab; the hover title carries the message.
+    const message = err instanceof Error ? err.message : 'Clipping failed.';
+    // No card can render on a PDF tab; a notification carries the reason and
+    // the hover title keeps it around after the notification is gone.
     await chrome.action.setTitle({
       tabId,
-      title: `Couldn't clip this PDF — ${err instanceof Error ? err.message : 'clipping failed.'}`,
+      title: `Couldn't clip this PDF — ${message}`,
     });
+    await notify("Couldn't clip this PDF", message);
   }
 }
 
@@ -653,15 +695,19 @@ interface CardData {
   token?: string; // identifies this card's clip against the shared buffer
 }
 
-async function renderCard(tabId: number, data: CardData): Promise<void> {
+// Returns whether the card actually rendered, so an error state can fall back
+// to a notification when the tab won't take the overlay either.
+async function renderCard(tabId: number, data: CardData): Promise<boolean> {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: renderClipCard,
       args: [data],
     });
+    return true;
   } catch {
     // Tab is gone or not injectable; the badge and console already carry state.
+    return false;
   }
 }
 
@@ -719,13 +765,17 @@ function brandFor(clip: Clip): {
   };
 }
 
+// "12,345" — shared by the preview card's meta line and the PDF notification.
+function formatWordCount(markdown: string): string {
+  const words = markdown.trim().split(/\s+/).filter(Boolean).length;
+  return new Intl.NumberFormat('en-US').format(words);
+}
+
 function wordCountLabel(clip: Clip): string {
-  const words = clip.content_markdown.trim().split(/\s+/).filter(Boolean).length;
-  const n = new Intl.NumberFormat('en-US').format(words);
   // Only the non-PDF path renders a card (PDF tabs can't host the overlay),
   // so clip.kind is 'youtube' or 'article' here.
   const kind = clip.kind === 'youtube' ? 'full transcript' : 'article';
-  return `${n} words · ${kind}`;
+  return `${formatWordCount(clip.content_markdown)} words · ${kind}`;
 }
 
 function hostnameOf(url: string): string {

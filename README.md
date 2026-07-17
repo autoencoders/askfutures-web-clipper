@@ -54,6 +54,7 @@ last price — as a snapshot at panel open, refreshable on request (see
 | `storage` | buffer the clip until askfutures.com acknowledges it |
 | `sidePanel` | show askfutures.com beside the chart on charting sites |
 | `offscreen` | parse PDFs with pdf.js in a short-lived offscreen document (created per PDF clip, closed after) |
+| `notifications` | clip status on pages that can't host the in-page card (PDF tabs): word count on success, the reason on failure |
 | `https://*.askfutures.com/*` | the handoff content script on the `/analyze` page, and first-party cookies for the side panel (sign-in lives on `clerk.askfutures.com`) |
 
 There are no broad host permissions and no background access to your browsing:

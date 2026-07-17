@@ -63,6 +63,9 @@ askfutures.com for trading-strategy analysis, on the user's explicit click.
 - **storage** — buffer the clip in session storage (memory-only) until
   askfutures.com acknowledges receipt, so it survives a slow page load or a
   sign-in redirect.
+- **notifications** — show clip status on pages that cannot host the in-page
+  preview card (Chrome's PDF viewer rejects script injection): the word count
+  of a successful PDF clip, or the reason a clip failed.
 - **Host permission `https://askfutures.com/*`** — run the handoff content
   script on askfutures.com/analyze that delivers the clip to the page.
 - **Remote code:** none. All code ships in the package.

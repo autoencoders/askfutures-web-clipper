@@ -26,8 +26,14 @@ import {
   MAX_CLIP_BYTES,
   PdfExtractOutcome,
   RUNTIME_MSG,
+  STORAGE_KEY_PANEL_TAB,
   STORAGE_KEY_PENDING_CLIP,
   STORAGE_KEY_PENDING_TOKEN,
+  STORAGE_KEY_TOUR_CAPTURE,
+  STORAGE_KEY_TOUR_RESULT,
+  TourCapture,
+  TourResult,
+  TourTags,
 } from './shared';
 
 // Charting sites where the toolbar click opens the AskFutures side panel
@@ -54,6 +60,10 @@ chrome.action.onClicked.addListener((tab) => {
     chrome.runtime
       .sendMessage({ type: RUNTIME_MSG.chartContextPing, tabId: tab.id })
       .catch(() => {});
+    // A tour candidate can itself live on a charting site. The panel-open
+    // above is then a no-op (the panel already hosts the tour) and this click
+    // is the capture approval — the activeTab grant survives the await inside.
+    void maybeTourCapture(tab);
     return;
   }
   void handleClick(tab);
@@ -86,6 +96,12 @@ async function handleClick(tab: chrome.tabs.Tab): Promise<void> {
   }
   const tabId = tab.id;
   const url = tab.url;
+  // A pending research-tour capture claims the click on the tour tab (the
+  // click is the user's approval of that page); every other tab keeps the
+  // ordinary clip flow.
+  if (await maybeTourCapture(tab)) {
+    return;
+  }
   if (isPdfUrl(url)) {
     await handlePdfClip(tabId, url);
     return;
@@ -146,6 +162,19 @@ async function notify(title: string, message: string): Promise<void> {
 // older card (a second tab clipped after this one) is refused rather than
 // acting on the wrong clip. Dismiss of the matching card clears it.
 async function bufferClip(clip: Clip): Promise<string> {
+  assertClipSize(clip);
+  const token = crypto.randomUUID();
+  await chrome.storage.session.set({
+    [STORAGE_KEY_PENDING_CLIP]: clip,
+    [STORAGE_KEY_PENDING_TOKEN]: token,
+  });
+  return token;
+}
+
+// The MAX_CLIP_BYTES cap, applied to every buffered payload — the ordinary
+// clip buffer and tour captures alike (SECURITY.md: the page enforces the
+// same cap on its side).
+function assertClipSize(clip: Clip): void {
   const bytes = new TextEncoder().encode(JSON.stringify(clip)).length;
   if (bytes > MAX_CLIP_BYTES) {
     const mb = (bytes / (1024 * 1024)).toFixed(1);
@@ -153,12 +182,6 @@ async function bufferClip(clip: Clip): Promise<string> {
       `This clip is ${mb} MB — over the 2 MB limit. Try clipping a shorter page.`,
     );
   }
-  const token = crypto.randomUUID();
-  await chrome.storage.session.set({
-    [STORAGE_KEY_PENDING_CLIP]: clip,
-    [STORAGE_KEY_PENDING_TOKEN]: token,
-  });
-  return token;
 }
 
 // executeScript itself failed — the tab won't take injection at all (Chrome's
@@ -458,6 +481,214 @@ async function openOrFocusAnalyzeTab(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Research-tour captures (SECURITY.md § "The research-tour messages"). The
+// tour page in the side panel asks for a candidate capture; the worker
+// navigates the tab the panel sits next to and waits for the user's toolbar
+// click on that tab — the click is the approval, and its activeTab grant is
+// what lets the extractor run there without any new host permissions. The
+// finished capture (or its failure reason) is buffered for the tour content
+// script to deliver; the clip side clears only on the page's ack.
+
+// An abandoned tour must not turn a later ordinary click on the same tab into
+// a tour capture, so pending requests expire. Generous, because the user may
+// read the candidate for a while before approving.
+const TOUR_CAPTURE_TTL_MS = 15 * 60 * 1000;
+
+const TOUR_CAPTURE_TITLE =
+  'Click to capture this page for your research tour';
+
+// One usage hint per browser session — the tour page can't explain the
+// toolbar click on the extension's behalf.
+const TOUR_HINT_SHOWN_KEY = 'tourHintShown';
+
+async function handleTourCaptureRequest(
+  message: { pipeline_id?: unknown; candidate_id?: unknown; url?: unknown },
+  sendResponse: (response: { ok: boolean; error?: string }) => void,
+): Promise<void> {
+  try {
+    const { pipeline_id, candidate_id, url } = message;
+    if (
+      typeof pipeline_id !== 'string' ||
+      !pipeline_id ||
+      typeof candidate_id !== 'string' ||
+      !candidate_id ||
+      typeof url !== 'string' ||
+      !/^https?:$/.test(new URL(url).protocol)
+    ) {
+      throw new Error('Bad capture request.');
+    }
+    const items = await chrome.storage.session.get(STORAGE_KEY_PANEL_TAB);
+    const tabId = items[STORAGE_KEY_PANEL_TAB];
+    if (typeof tabId !== 'number') {
+      throw new Error('No side panel tab to open the candidate in.');
+    }
+    const capture: TourCapture = {
+      tags: { pipeline_id, candidate_id },
+      url,
+      tabId,
+      requested_at: Date.now(),
+    };
+    // Replace both slots: one capture in flight at a time, and a result the
+    // page never collected must not be delivered against a new candidate.
+    await chrome.storage.session.set({ [STORAGE_KEY_TOUR_CAPTURE]: capture });
+    await chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
+    await chrome.tabs.update(tabId, { url });
+    await markTourTab(tabId);
+    const hint = await chrome.storage.session.get(TOUR_HINT_SHOWN_KEY);
+    if (!hint[TOUR_HINT_SHOWN_KEY]) {
+      await chrome.storage.session.set({ [TOUR_HINT_SHOWN_KEY]: true });
+      await notify(
+        'Candidate opened',
+        'Review the page, then click the AskFutures toolbar button to capture it — or move on in the panel to skip.',
+      );
+    }
+    sendResponse({ ok: true });
+  } catch (err) {
+    sendResponse({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+// Badge + hover title flagging the tour tab as awaiting the approval click.
+// Re-applied on every load of that tab while the capture is pending (see the
+// onUpdated listener) because navigation resets per-tab action state.
+async function markTourTab(tabId: number): Promise<void> {
+  try {
+    await chrome.action.setBadgeText({ tabId, text: 'CLIP' });
+    await chrome.action.setTitle({ tabId, title: TOUR_CAPTURE_TITLE });
+  } catch {
+    // Tab gone; the capture will expire or be replaced.
+  }
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== 'complete') {
+    return;
+  }
+  void (async () => {
+    const capture = await pendingTourCapture();
+    if (capture?.tabId === tabId) {
+      await markTourTab(tabId);
+    }
+  })();
+});
+
+// The pending capture, expired-checked. Expiry clears the slot so the badge
+// stops promising a capture the tour page has long since given up on.
+async function pendingTourCapture(): Promise<TourCapture | null> {
+  const items = await chrome.storage.session.get(STORAGE_KEY_TOUR_CAPTURE);
+  const capture = items[STORAGE_KEY_TOUR_CAPTURE] as TourCapture | undefined;
+  if (!capture) {
+    return null;
+  }
+  if (Date.now() - capture.requested_at > TOUR_CAPTURE_TTL_MS) {
+    await clearTourCapture(capture.tabId);
+    return null;
+  }
+  return capture;
+}
+
+async function clearTourCapture(tabId: number): Promise<void> {
+  await chrome.storage.session.remove(STORAGE_KEY_TOUR_CAPTURE);
+  try {
+    await chrome.action.setBadgeText({ tabId, text: '' });
+    await chrome.action.setTitle({ tabId, title: DEFAULT_ACTION_TITLE });
+  } catch {
+    // Tab gone.
+  }
+}
+
+// Claim a toolbar click for the tour when it lands on the tab a capture is
+// pending for. Returns false — leaving the ordinary clip flow to run — for
+// every other click, and when the side panel is gone (the tour is over; a
+// stale pending capture must not hijack a normal clip).
+async function maybeTourCapture(tab: chrome.tabs.Tab): Promise<boolean> {
+  if (tab.id === undefined || !tab.url || !/^https?:/.test(tab.url)) {
+    return false;
+  }
+  const capture = await pendingTourCapture();
+  if (!capture || capture.tabId !== tab.id) {
+    return false;
+  }
+  // getContexts exists from Chrome 116; on the (older) rest, the TTL alone
+  // bounds staleness.
+  if (chrome.runtime.getContexts) {
+    const panels = await chrome.runtime.getContexts({
+      contextTypes: [chrome.runtime.ContextType.SIDE_PANEL],
+    });
+    if (panels.length === 0) {
+      await clearTourCapture(tab.id);
+      return false;
+    }
+  }
+  await captureTourClip(tab.id, tab.url, capture.tags);
+  return true;
+}
+
+// Extract the approved page and buffer the tagged result for the tour content
+// script to deliver. Same extraction primitives as the ordinary flow —
+// extractor injection, with the PDF fast path and the injection-failure sniff
+// reroute — but no preview card and no /analyze: the toolbar click was the
+// confirmation, and the clip's destination is the tour page in the panel.
+async function captureTourClip(
+  tabId: number,
+  url: string,
+  tags: TourTags,
+): Promise<void> {
+  await chrome.action.setBadgeText({ tabId, text: '…' });
+  await renderCard(tabId, {
+    state: 'working',
+    message: 'Capturing for your research tour…',
+  });
+  try {
+    let clip: Clip;
+    if (isPdfUrl(url)) {
+      clip = await extractPdfClip(url);
+    } else {
+      try {
+        clip = await extractClip(tabId);
+      } catch (err) {
+        if (err instanceof InjectionError && (await sniffIsPdf(url))) {
+          clip = await extractPdfClip(url);
+        } else {
+          throw err;
+        }
+      }
+    }
+    assertClipSize(clip);
+    const result: TourResult = { ok: true, tags, clip };
+    await chrome.storage.session.set({ [STORAGE_KEY_TOUR_RESULT]: result });
+    await clearTourCapture(tabId);
+    const shown = await renderCard(tabId, {
+      state: 'done',
+      message: 'Captured — sending to your research tour',
+    });
+    if (!shown) {
+      await notify(
+        `Captured ${formatWordCount(clip.content_markdown)} words for your research tour`,
+        clip.title?.trim() || url,
+      );
+    }
+  } catch (err) {
+    console.error('[askfutures-clipper] tour capture failed', err);
+    const reason = err instanceof Error ? err.message : 'Capture failed.';
+    // Never silently dropped: the reason reaches the tour page (as a
+    // tourCaptureError the page may consume) and the user directly. The
+    // pending capture stays so the user can fix the page state and click
+    // again, or the tour page's Retry can re-request it.
+    const result: TourResult = { ok: false, tags, reason };
+    await chrome.storage.session.set({ [STORAGE_KEY_TOUR_RESULT]: result });
+    await chrome.action.setBadgeText({ tabId, text: '!' });
+    const shown = await renderCard(tabId, { state: 'error', message: reason });
+    if (!shown) {
+      await notify("Couldn't capture this page", reason);
+    }
+  }
+}
+
 // The handoff content script reads and clears the buffered clip through these
 // messages; chrome.storage.session itself stays trusted-context-only. Only the
 // askfutures.com content script may touch the buffer.
@@ -498,6 +729,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (senderOrigin(sender) !== ASKFUTURES_ORIGIN) {
     return;
   }
+
+  // Research-tour messages, from the tour content script (which only runs on
+  // askfutures.com/research-tour — including inside the side panel's iframe,
+  // so unlike the handoff script it has no sender.tab).
+  if (message?.type === RUNTIME_MSG.tourCaptureRequest) {
+    void handleTourCaptureRequest(message, sendResponse);
+    return true;
+  }
+  if (message?.type === RUNTIME_MSG.getPendingTourResult) {
+    void chrome.storage.session.get(STORAGE_KEY_TOUR_RESULT).then((items) => {
+      const result = (items[STORAGE_KEY_TOUR_RESULT] as TourResult | undefined) ?? null;
+      // Failures are one-shot: the reason was already surfaced by the worker,
+      // and the tour page treats the forwarded error as fire-and-forget — only
+      // successful clips need the deliver-until-ack discipline.
+      if (result && !result.ok) {
+        void chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
+      }
+      sendResponse({ result });
+    });
+    return true;
+  }
+  if (message?.type === RUNTIME_MSG.tourClipDelivered) {
+    void chrome.storage.session
+      .remove(STORAGE_KEY_TOUR_RESULT)
+      .then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
   if (message?.type === RUNTIME_MSG.getPendingClip) {
     void chrome.storage.session
       .get(STORAGE_KEY_PENDING_CLIP)
@@ -678,7 +937,7 @@ function firstNumber(re: RegExp, text: string | undefined): number | null {
 // use helpers; the injected function must stay self-contained). Passed as a
 // single structured-cloneable arg to renderClipCard.
 interface CardData {
-  state: 'working' | 'error' | 'preview';
+  state: 'working' | 'error' | 'preview' | 'done';
   message?: string;
   // Preview fields.
   sourceLabel?: string; // "Captured from YouTube"
@@ -883,6 +1142,8 @@ function renderClipCard(data: CardData): void {
     '@keyframes af-spin{to{transform:rotate(360deg)}}' +
     '.err{flex:none;width:20px;height:20px;display:flex;align-items:center;' +
     'justify-content:center;color:#f87171;font-weight:700}' +
+    '.ok{flex:none;width:20px;height:20px;display:flex;align-items:center;' +
+    'justify-content:center;color:#34d399;font-weight:700}' +
     '</style>';
 
   let body: string;
@@ -905,6 +1166,11 @@ function renderClipCard(data: CardData): void {
     body =
       '<div class="bd"><div class="status"><span class="err">✕</span>' +
       `<span class="msg"><b>Couldn't clip this page</b><small>${esc(data.message)}</small></span>` +
+      '</div></div>';
+  } else if (data.state === 'done') {
+    body =
+      '<div class="bd"><div class="status"><span class="ok">✓</span>' +
+      `<span class="msg"><b>${esc(data.message)}</b><small hidden></small></span>` +
       '</div></div>';
   } else {
     body =
@@ -990,6 +1256,8 @@ function renderClipCard(data: CardData): void {
       }
     }, 5000);
   } else {
-    timer(drop, 8000);
+    // Success confirmations ('done') linger briefly; errors stay long enough
+    // to read the reason.
+    timer(drop, data.state === 'done' ? 2600 : 8000);
   }
 }

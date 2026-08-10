@@ -45,6 +45,12 @@ WHAT IT EXTRACTS
   library, also used by Obsidian Web Clipper).
 • YouTube: the video transcript, with chapters and timestamps.
 
+GUIDED RESEARCH TOUR
+From the side panel you can run a guided research tour: search for strategy
+sources on askfutures.com, open each candidate in the tab beside the panel,
+and capture the ones you approve with the same toolbar click — each capture
+is extracted in your browser and delivered only to askfutures.com.
+
 Requires a free askfutures.com account to run the analysis. Clips over 2 MB
 are refused.
 
@@ -67,7 +73,10 @@ askfutures.com for trading-strategy analysis, on the user's explicit click.
   preview card (Chrome's PDF viewer rejects script injection): the word count
   of a successful PDF clip, or the reason a clip failed.
 - **Host permission `https://askfutures.com/*`** — run the handoff content
-  script on askfutures.com/analyze that delivers the clip to the page.
+  script on askfutures.com/analyze that delivers the clip to the page, and the
+  research-tour content script on askfutures.com/research-tour that delivers
+  captures to the guided research tour. Both scripts run only on
+  askfutures.com pages.
 - **Remote code:** none. All code ships in the package.
 
 ## Data-use disclosures (Chrome "Privacy practices" tab)

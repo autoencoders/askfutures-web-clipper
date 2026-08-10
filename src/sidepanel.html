@@ -3,10 +3,12 @@
      chart and AskFutures can sit side by side (see background.ts — on the
      charting sites in SIDE_PANEL_DOMAINS the toolbar click opens this instead
      of clipping). sidepanel.js bridges chart context (ticker, timeframe,
-     indicators, last values) from the chart tab into the iframe.
-     askfutures.com allows being framed by the extension; the browser session
-     carries in because the extension holds the askfutures.com host
-     permission. -->
+     indicators, last values) from the chart tab into the iframe, and the
+     header's toggle swaps the iframe to askfutures.com/research-tour for the
+     guided research tour (the tour page owns all tour state — the panel
+     chrome stays this one slim bar). askfutures.com allows being framed by
+     the extension; the browser session carries in because the extension holds
+     the askfutures.com host permission. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -17,16 +19,46 @@
         margin: 0;
         height: 100%;
         background: #0f1626;
+        display: flex;
+        flex-direction: column;
+      }
+      nav {
+        display: flex;
+        gap: 4px;
+        padding: 6px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        font: 12px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      nav button {
+        border: 0;
+        border-radius: 6px;
+        padding: 5px 10px;
+        background: none;
+        color: #8a97ad;
+        font: inherit;
+        cursor: pointer;
+      }
+      nav button:hover {
+        color: #e8edf6;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      nav button.active {
+        color: #e8edf6;
+        background: rgba(59, 130, 246, 0.22);
       }
       iframe {
         display: block;
         border: 0;
         width: 100%;
-        height: 100%;
+        flex: 1;
       }
     </style>
   </head>
   <body>
+    <nav>
+      <button type="button" data-view="sessions" class="active">Sessions</button>
+      <button type="button" data-view="tour">Research tour</button>
+    </nav>
     <iframe src="https://askfutures.com/sessions" title="AskFutures" allow="clipboard-write"></iframe>
     <script src="sidepanel.js"></script>
   </body>

@@ -23,6 +23,7 @@ import {
   ASKFUTURES_ORIGIN,
   ChartContext,
   Clip,
+  isHttpUrl,
   MAX_CLIP_BYTES,
   PdfExtractOutcome,
   RUNTIME_MSG,
@@ -513,8 +514,7 @@ async function handleTourCaptureRequest(
       !pipeline_id ||
       typeof candidate_id !== 'string' ||
       !candidate_id ||
-      typeof url !== 'string' ||
-      !/^https?:$/.test(new URL(url).protocol)
+      !isHttpUrl(url)
     ) {
       throw new Error('Bad capture request.');
     }
@@ -534,6 +534,7 @@ async function handleTourCaptureRequest(
       url,
       tabId,
       requested_at: Date.now(),
+      loads: 0,
     };
     // Replace both slots: one capture in flight at a time, and a result the
     // page never collected must not be delivered against a new candidate —
@@ -579,6 +580,12 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   void (async () => {
     const capture = await pendingTourCapture();
     if (capture?.tabId === tabId) {
+      // Count the completed load (maybeTourCapture uses it to tell the
+      // candidate's own load from the user navigating on) and re-mark the
+      // badge, which navigation resets.
+      await chrome.storage.session.set({
+        [STORAGE_KEY_TOUR_CAPTURE]: { ...capture, loads: capture.loads + 1 },
+      });
       await markTourTab(tabId);
     }
   })();
@@ -635,8 +642,28 @@ async function maybeTourCapture(tab: chrome.tabs.Tab): Promise<boolean> {
     await clearTourCapture(tab.id);
     return false;
   }
+  // The click approves the candidate the tour opened, so claim it only while
+  // the tab plausibly still shows that candidate: the current URL shares the
+  // candidate's origin (covers reloads and same-site moves), or the tab has
+  // seen at most its initial load since we navigated it (covers candidates
+  // that redirect cross-origin). Once the user has navigated somewhere else
+  // entirely the approval is void — clear the capture so this click, and
+  // later ones, get the ordinary clip flow (the tour page times the candidate
+  // out and offers Retry).
+  if (!sameOrigin(tab.url, capture.url) && capture.loads > 1) {
+    await clearTourCapture(tab.id);
+    return false;
+  }
   await captureTourClip(tab.id, tab.url, capture.tags);
   return true;
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
 }
 
 // Extract the approved page and buffer the tagged result for the tour content
@@ -678,9 +705,11 @@ async function captureTourClip(
     };
     await chrome.storage.session.set({ [STORAGE_KEY_TOUR_RESULT]: result });
     await clearTourCapture(tabId);
+    // "Captured", not "sent": delivery waits for the tour page's poller (and
+    // for the panel to be showing the tour view at all).
     const shown = await renderCard(tabId, {
       state: 'done',
-      message: 'Captured — sending to your research tour',
+      message: 'Captured for your research tour',
     });
     if (!shown) {
       await notify(
@@ -786,15 +815,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === RUNTIME_MSG.tourClipDelivered) {
-    void chrome.storage.session.get(STORAGE_KEY_TOUR_RESULT).then(async (items) => {
+    void (async () => {
+      const items = await chrome.storage.session.get(STORAGE_KEY_TOUR_RESULT);
       const result = items[STORAGE_KEY_TOUR_RESULT] as TourResult | undefined;
       // Token-matched, like the preview card's send/dismiss: an ack echoing a
       // superseded capture's token must not clear a newer, undelivered one.
       if (result?.ok && result.token === message.token) {
         await chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
       }
-      sendResponse({ ok: true });
-    });
+      // capturePending lets the poller re-arm after a late ack: the page may
+      // already have requested the next candidate, whose result must not
+      // strand behind a stopped loop.
+      sendResponse({
+        ok: true,
+        capturePending: (await pendingTourCapture()) !== null,
+      });
+    })();
     return true;
   }
 

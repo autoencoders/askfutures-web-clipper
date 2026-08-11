@@ -12,7 +12,13 @@
 // restart — the result lives in chrome.storage.session) and re-posts it until
 // the page acks.
 
-import { ASKFUTURES_ORIGIN, PAGE_MSG, RUNTIME_MSG, TourResult } from './shared';
+import {
+  ASKFUTURES_ORIGIN,
+  isHttpUrl,
+  PAGE_MSG,
+  RUNTIME_MSG,
+  TourResult,
+} from './shared';
 
 // How long to keep polling after a capture request: the user has to eyeball
 // the candidate page and click the toolbar, so this is minutes, not seconds.
@@ -54,10 +60,17 @@ window.addEventListener('message', (event: MessageEvent) => {
     const token = sentNonces.get(data.nonce)!;
     sentNonces.clear();
     stopPolling();
-    void chrome.runtime.sendMessage({
-      type: RUNTIME_MSG.tourClipDelivered,
-      token,
-    });
+    // Re-arm if another capture is already in flight: the page can request
+    // candidate B before its ack for clip A lands, and a stopped loop would
+    // strand B's result until the page remounts.
+    chrome.runtime
+      .sendMessage({ type: RUNTIME_MSG.tourClipDelivered, token })
+      .then((response) => {
+        if (response?.capturePending) {
+          startPolling(PENDING_KEEPALIVE_MS);
+        }
+      })
+      .catch(() => {});
   }
 });
 
@@ -99,9 +112,14 @@ async function forwardCaptureRequest(data: {
   startPolling(CAPTURE_POLL_WINDOW_MS);
 }
 
+// pollInFlight closes the gap while poll() is awaiting the worker (pollTimer
+// is null then): a tourReady/tourCapture landing mid-await must extend the
+// deadline, not spawn a second concurrent loop.
+let pollInFlight = false;
+
 function startPolling(windowMs: number): void {
   pollDeadline = Math.max(pollDeadline, Date.now() + windowMs);
-  if (pollTimer === null) {
+  if (pollTimer === null && !pollInFlight) {
     void poll();
   }
 }
@@ -116,6 +134,15 @@ function stopPolling(): void {
 
 async function poll(): Promise<void> {
   pollTimer = null;
+  pollInFlight = true;
+  try {
+    await pollOnce();
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+async function pollOnce(): Promise<void> {
   if (Date.now() > pollDeadline) {
     stopPolling();
     return;
@@ -179,14 +206,6 @@ function postCaptureError(
     { type: PAGE_MSG.tourCaptureError, tags, reason },
     ASKFUTURES_ORIGIN,
   );
-}
-
-function isHttpUrl(url: string): boolean {
-  try {
-    return /^https?:$/.test(new URL(url).protocol);
-  } catch {
-    return false;
-  }
 }
 
 // Deliver a result left over from a reload of this frame mid-capture.

@@ -89,6 +89,17 @@ export const RUNTIME_MSG = {
   tourClipDelivered: 'tour-clip-delivered',
 } as const;
 
+// Strict http(s) URL check, shared by every place a tour URL crosses a trust
+// boundary (mirrors session-ui's isHttpUrl).
+export function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    return /^https?:$/.test(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 // The offscreen extractor's reply to an extractPdf message. Same envelope
 // shape as extractor.ts's ExtractOutcome: the offscreen document never
 // rejects, it always resolves to this.
@@ -132,11 +143,15 @@ export interface TourTags {
 // on the navigated tab fulfills it (the click is the approval — it grants the
 // activeTab access extraction needs). requested_at bounds staleness: an
 // abandoned tour must not turn a later ordinary click into a tour capture.
+// loads counts the tab's completed navigations since the request, so the
+// click-claim can tell the candidate's own load (redirects included) from the
+// user having navigated on to something else.
 export interface TourCapture {
   tags: TourTags;
   url: string;
   tabId: number;
   requested_at: number; // Date.now() in the service worker
+  loads: number;
 }
 
 // The finished capture waiting for delivery into the tour page: the tagged

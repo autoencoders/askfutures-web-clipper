@@ -156,8 +156,12 @@ Rules:
   broad host permissions; a candidate the user never approves is never read.
 - **Pending captures are narrow and expire.** A capture claims the toolbar
   click only on the specific tab it navigated, only while the side panel is
-  still open, and only for 15 minutes — an abandoned tour can't repurpose a
-  later ordinary clip click.
+  still open, only for 15 minutes, and only while that tab still plausibly
+  shows the candidate — on the candidate's origin, or within the candidate's
+  own initial load (redirects included). Navigating the tab somewhere else
+  entirely voids the pending capture, so an abandoned tour can't repurpose a
+  later ordinary clip click and an ordinary clip on a wandered-off tab stays
+  an ordinary clip.
 - **Payload = the clip payload.** `payload` is the same v1 clip payload as the
   `/analyze` contract, same validation, same 2 MB cap. `tags` carry two opaque
   ids minted by askfutures.com and echoed back verbatim; nothing else crosses

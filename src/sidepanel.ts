@@ -54,8 +54,12 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // Tell the service worker which tab this panel sits next to — the tab tour
-// captures navigate. Session storage (trusted contexts only); last panel to
-// bind wins, which matches Chrome showing one panel per window.
+// captures navigate. Session storage (trusted contexts only). One global
+// slot, so with panels open in several windows at once the most recent to
+// bind wins and tour captures target that panel's tab; a message from a
+// panel iframe carries no window identity, so the binding can't be
+// window-scoped without new plumbing. Known limitation — run one tour at a
+// time.
 async function registerPanelTab(): Promise<void> {
   if (chartTabId === null) return;
   await chrome.storage.session.set({ [STORAGE_KEY_PANEL_TAB]: chartTabId });

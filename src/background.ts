@@ -536,9 +536,11 @@ async function handleTourCaptureRequest(
       requested_at: Date.now(),
     };
     // Replace both slots: one capture in flight at a time, and a result the
-    // page never collected must not be delivered against a new candidate.
-    await chrome.storage.session.set({ [STORAGE_KEY_TOUR_CAPTURE]: capture });
+    // page never collected must not be delivered against a new candidate —
+    // the stale result goes first, so a poll landing between the two ops
+    // finds nothing rather than the superseded clip.
     await chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
+    await chrome.storage.session.set({ [STORAGE_KEY_TOUR_CAPTURE]: capture });
     await chrome.tabs.update(tabId, { url });
     await markTourTab(tabId);
     const hint = await chrome.storage.session.get(TOUR_HINT_SHOWN_KEY);
@@ -582,13 +584,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
-// Whether a side panel document exists — the tour's host. Chrome < 116 has no
-// getContexts to probe with; report open there and let the capture TTL bound
-// staleness.
+// Whether a side panel document exists — the tour's host. getContexts is
+// Chrome 116+, a floor the extension already stands on
+// (ensureOffscreenDocument calls it unconditionally).
 async function sidePanelOpen(): Promise<boolean> {
-  if (!chrome.runtime.getContexts) {
-    return true;
-  }
   const panels = await chrome.runtime.getContexts({
     contextTypes: [chrome.runtime.ContextType.SIDE_PANEL],
   });
@@ -776,11 +775,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (result && !result.ok) {
         await chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
       }
-      // While the user is still eyeballing the candidate, tell the poller so
-      // it keeps its loop alive to the capture's TTL rather than its own
-      // window — a capture approved late must still get delivered.
-      const capturePending =
-        result === null && (await pendingTourCapture()) !== null;
+      // While a capture is still claimable — the user hasn't clicked yet, or
+      // a failed attempt left it open for another try — tell the poller so it
+      // keeps its loop alive to the capture's TTL rather than its own window.
+      // A success never coincides with a pending capture (captureTourClip
+      // clears the capture when it stores the clip).
+      const capturePending = (await pendingTourCapture()) !== null;
       sendResponse({ result, capturePending });
     })();
     return true;

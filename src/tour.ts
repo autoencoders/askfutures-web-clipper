@@ -148,10 +148,16 @@ async function poll(): Promise<void> {
       );
     } else {
       // Failure is one-shot: the worker cleared it when this poll fetched it,
-      // and it was already surfaced to the user via notification/card.
+      // and it was already surfaced to the user via notification/card. But
+      // the capture itself may still be claimable — the user can fix the page
+      // and click the toolbar again — so keep polling while the worker
+      // reports it pending, or the retry's success would sit undelivered.
       postCaptureError(result.tags, result.reason);
-      stopPolling();
-      return;
+      if (!capturePending) {
+        stopPolling();
+        return;
+      }
+      pollDeadline = Math.max(pollDeadline, Date.now() + PENDING_KEEPALIVE_MS);
     }
   } else if (capturePending) {
     // The user is still eyeballing the candidate — keep the loop alive past

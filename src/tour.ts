@@ -16,15 +16,23 @@ import { ASKFUTURES_ORIGIN, PAGE_MSG, RUNTIME_MSG, TourResult } from './shared';
 
 // How long to keep polling after a capture request: the user has to eyeball
 // the candidate page and click the toolbar, so this is minutes, not seconds.
-// The tour page applies its own (shorter) per-capture timeout and shows the
-// candidate as failed if the user never clicks.
-const CAPTURE_POLL_WINDOW_MS = 10 * 60 * 1000;
+// Matches the worker's TOUR_CAPTURE_TTL_MS — a capture approved at the last
+// minute must still find a live poller. The tour page applies its own
+// (shorter) per-capture timeout and shows the candidate as failed if the user
+// never clicks.
+const CAPTURE_POLL_WINDOW_MS = 15 * 60 * 1000;
 // A short window on load / page-ready, to deliver a result left over from
-// before this document (or the service worker) was reloaded mid-capture.
+// before this document (or the service worker) was reloaded mid-capture. The
+// worker's capturePending flag extends it (below) whenever a capture from a
+// previous document of this page is still awaiting the user's click.
 const STARTUP_POLL_WINDOW_MS = 10 * 1000;
+// Rolling extension while the worker reports a capture in flight.
+const PENDING_KEEPALIVE_MS = 30 * 1000;
 const POLL_INTERVAL_MS = 1000;
 
-const sentNonces = new Set<string>();
+// nonce → the worker's result token, echoed on tourClipDelivered so the
+// worker clears exactly the capture this ack belongs to.
+const sentNonces = new Map<string, string>();
 let pollDeadline = 0;
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -43,9 +51,13 @@ window.addEventListener('message', (event: MessageEvent) => {
     typeof data.nonce === 'string' &&
     sentNonces.has(data.nonce)
   ) {
+    const token = sentNonces.get(data.nonce)!;
     sentNonces.clear();
     stopPolling();
-    void chrome.runtime.sendMessage({ type: RUNTIME_MSG.tourClipDelivered });
+    void chrome.runtime.sendMessage({
+      type: RUNTIME_MSG.tourClipDelivered,
+      token,
+    });
   }
 });
 
@@ -109,11 +121,13 @@ async function poll(): Promise<void> {
     return;
   }
   let result: TourResult | null = null;
+  let capturePending = false;
   try {
     const response = await chrome.runtime.sendMessage({
       type: RUNTIME_MSG.getPendingTourResult,
     });
     result = response?.result ?? null;
+    capturePending = response?.capturePending === true;
   } catch {
     // Worker mid-restart; try again next tick.
   }
@@ -122,7 +136,7 @@ async function poll(): Promise<void> {
       // Re-posted every poll until the ack lands; the page acks anything it
       // parses, so duplicates are acked and dropped by its candidate matching.
       const nonce = crypto.randomUUID();
-      sentNonces.add(nonce);
+      sentNonces.set(nonce, result.token);
       window.postMessage(
         {
           type: PAGE_MSG.tourClip,
@@ -139,6 +153,11 @@ async function poll(): Promise<void> {
       stopPolling();
       return;
     }
+  } else if (capturePending) {
+    // The user is still eyeballing the candidate — keep the loop alive past
+    // this document's own window (it may have loaded mid-capture, e.g. after
+    // a panel view toggle) until the worker's capture expires or resolves.
+    pollDeadline = Math.max(pollDeadline, Date.now() + PENDING_KEEPALIVE_MS);
   }
   pollTimer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
 }

@@ -142,8 +142,12 @@ export interface TourCapture {
 // The finished capture waiting for delivery into the tour page: the tagged
 // clip, or the reason it failed (surfaced to the page as a tourCaptureError
 // and already shown to the user by the worker — never silently dropped).
+// `token` identifies one successful capture: the content script echoes it on
+// tourClipDelivered, so a late ack for a superseded clip cannot clear a newer,
+// undelivered result (the same discipline as the preview card's clip token).
+// Failures carry none — they are one-shot, collected on first poll.
 export type TourResult =
-  | { ok: true; tags: TourTags; clip: Clip }
+  | { ok: true; token: string; tags: TourTags; clip: Clip }
   | { ok: false; tags: TourTags; reason: string };
 
 // v1 chart-context snapshot — what the side panel scrapes from the charting

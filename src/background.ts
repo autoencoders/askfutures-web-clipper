@@ -518,6 +518,12 @@ async function handleTourCaptureRequest(
     ) {
       throw new Error('Bad capture request.');
     }
+    // The registered panel tab may be long stale (the key is written at panel
+    // load and never cleared), so navigating it is only legitimate while a
+    // side panel actually exists to host the tour.
+    if (!(await sidePanelOpen())) {
+      throw new Error('The side panel is closed — reopen it to run the tour.');
+    }
     const items = await chrome.storage.session.get(STORAGE_KEY_PANEL_TAB);
     const tabId = items[STORAGE_KEY_PANEL_TAB];
     if (typeof tabId !== 'number') {
@@ -576,6 +582,19 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   })();
 });
 
+// Whether a side panel document exists — the tour's host. Chrome < 116 has no
+// getContexts to probe with; report open there and let the capture TTL bound
+// staleness.
+async function sidePanelOpen(): Promise<boolean> {
+  if (!chrome.runtime.getContexts) {
+    return true;
+  }
+  const panels = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.SIDE_PANEL],
+  });
+  return panels.length > 0;
+}
+
 // The pending capture, expired-checked. Expiry clears the slot so the badge
 // stops promising a capture the tour page has long since given up on.
 async function pendingTourCapture(): Promise<TourCapture | null> {
@@ -613,16 +632,9 @@ async function maybeTourCapture(tab: chrome.tabs.Tab): Promise<boolean> {
   if (!capture || capture.tabId !== tab.id) {
     return false;
   }
-  // getContexts exists from Chrome 116; on the (older) rest, the TTL alone
-  // bounds staleness.
-  if (chrome.runtime.getContexts) {
-    const panels = await chrome.runtime.getContexts({
-      contextTypes: [chrome.runtime.ContextType.SIDE_PANEL],
-    });
-    if (panels.length === 0) {
-      await clearTourCapture(tab.id);
-      return false;
-    }
+  if (!(await sidePanelOpen())) {
+    await clearTourCapture(tab.id);
+    return false;
   }
   await captureTourClip(tab.id, tab.url, capture.tags);
   return true;
@@ -659,7 +671,12 @@ async function captureTourClip(
       }
     }
     assertClipSize(clip);
-    const result: TourResult = { ok: true, tags, clip };
+    const result: TourResult = {
+      ok: true,
+      token: crypto.randomUUID(),
+      tags,
+      clip,
+    };
     await chrome.storage.session.set({ [STORAGE_KEY_TOUR_RESULT]: result });
     await clearTourCapture(tabId);
     const shown = await renderCard(tabId, {
@@ -730,30 +747,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  // Research-tour messages, from the tour content script (which only runs on
-  // askfutures.com/research-tour — including inside the side panel's iframe,
-  // so unlike the handoff script it has no sender.tab).
+  // Research-tour messages. tour.js runs wherever askfutures.com/research-tour
+  // loads, but only the copy inside the side panel's iframe may drive the
+  // tour: that one has no sender.tab (the panel is not a tab), while the same
+  // script in an ordinary tab does and is refused — the mirror image of the
+  // getChartContext gate above. Without this, a stray /research-tour tab could
+  // re-navigate the long-registered panel tab with no panel beside it.
+  if (
+    message?.type === RUNTIME_MSG.tourCaptureRequest ||
+    message?.type === RUNTIME_MSG.getPendingTourResult ||
+    message?.type === RUNTIME_MSG.tourClipDelivered
+  ) {
+    if (sender.tab) {
+      return;
+    }
+  }
   if (message?.type === RUNTIME_MSG.tourCaptureRequest) {
     void handleTourCaptureRequest(message, sendResponse);
     return true;
   }
   if (message?.type === RUNTIME_MSG.getPendingTourResult) {
-    void chrome.storage.session.get(STORAGE_KEY_TOUR_RESULT).then((items) => {
+    void (async () => {
+      const items = await chrome.storage.session.get(STORAGE_KEY_TOUR_RESULT);
       const result = (items[STORAGE_KEY_TOUR_RESULT] as TourResult | undefined) ?? null;
       // Failures are one-shot: the reason was already surfaced by the worker,
       // and the tour page treats the forwarded error as fire-and-forget — only
       // successful clips need the deliver-until-ack discipline.
       if (result && !result.ok) {
-        void chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
+        await chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
       }
-      sendResponse({ result });
-    });
+      // While the user is still eyeballing the candidate, tell the poller so
+      // it keeps its loop alive to the capture's TTL rather than its own
+      // window — a capture approved late must still get delivered.
+      const capturePending =
+        result === null && (await pendingTourCapture()) !== null;
+      sendResponse({ result, capturePending });
+    })();
     return true;
   }
   if (message?.type === RUNTIME_MSG.tourClipDelivered) {
-    void chrome.storage.session
-      .remove(STORAGE_KEY_TOUR_RESULT)
-      .then(() => sendResponse({ ok: true }));
+    void chrome.storage.session.get(STORAGE_KEY_TOUR_RESULT).then(async (items) => {
+      const result = items[STORAGE_KEY_TOUR_RESULT] as TourResult | undefined;
+      // Token-matched, like the preview card's send/dismiss: an ack echoing a
+      // superseded capture's token must not clear a newer, undelivered one.
+      if (result?.ok && result.token === message.token) {
+        await chrome.storage.session.remove(STORAGE_KEY_TOUR_RESULT);
+      }
+      sendResponse({ ok: true });
+    });
     return true;
   }
 

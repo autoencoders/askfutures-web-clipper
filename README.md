@@ -33,6 +33,17 @@ the toolbar click itself is the confirmation: the clip goes straight to
 `/analyze`. Text-layer PDFs only; scanned (image-only) PDFs aren't supported —
 there's no OCR — and fail with a clear message in the button's hover title.
 
+**Guided research tour.** From the side panel's *Research tour* view (an
+askfutures.com page — the extension holds no tokens and calls no APIs), you
+can search for strategy sources and walk through the candidates one by one:
+the extension opens each candidate in the tab next to the panel, you eyeball
+it, and clicking the toolbar button captures it — same in-browser extraction
+as a regular clip, delivered back to the tour page tagged with the candidate
+it belongs to (see [SECURITY.md](SECURITY.md) for the contract). The toolbar
+click is the approval: a candidate you never click is never read, exactly like
+any other page. Candidates that can't be captured (a video without captions,
+an unreadable page) report the reason instead of silently disappearing.
+
 **One exception:** on trading sites — [gocharting.com](https://gocharting.com),
 [tradingview.com](https://tradingview.com),
 [robinhood.com](https://robinhood.com),
@@ -55,7 +66,7 @@ last price — as a snapshot at panel open, refreshable on request (see
 | `sidePanel` | show askfutures.com beside the chart on charting sites |
 | `offscreen` | parse PDFs with pdf.js in a short-lived offscreen document (created per PDF clip, closed after) |
 | `notifications` | clip status on pages that can't host the in-page card (PDF tabs): word count on success, the reason on failure |
-| `https://*.askfutures.com/*` | the handoff content script on the `/analyze` page, and first-party cookies for the side panel (sign-in lives on `clerk.askfutures.com`) |
+| `https://*.askfutures.com/*` | the handoff content script on the `/analyze` page, the research-tour content script on `/research-tour`, and first-party cookies for the side panel (sign-in lives on `clerk.askfutures.com`) |
 
 There are no broad host permissions and no background access to your browsing:
 the extension can only read a page in direct response to your click

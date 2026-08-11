@@ -30,6 +30,12 @@
       "matches": ["https://askfutures.com/analyze*"],
       "js": ["handoff.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://askfutures.com/research-tour*"],
+      "js": ["tour.js"],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "icons": {

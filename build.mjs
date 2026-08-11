@@ -25,6 +25,7 @@ await esbuild.build({
   entryPoints: [
     'src/background.ts',
     'src/handoff.ts',
+    'src/tour.ts',
     'src/sidepanel.ts',
     'src/gocharting.ts',
     'src/tradingview.ts',

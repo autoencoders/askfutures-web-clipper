@@ -5,8 +5,24 @@
 // fresh snapshot with askfutures-chart-context-request (e.g. right before the
 // user submits a trading idea). Snapshots only — there is no live observation
 // of the chart. See SECURITY.md for the message contract.
+//
+// The panel also hosts the guided research tour: the header's toggle points
+// the iframe at askfutures.com/research-tour, whose page owns all tour state
+// and API calls (the extension never holds tokens). The panel's only tour
+// duties are registering which tab it sits next to — the tab the service
+// worker navigates to each candidate — and swapping the iframe src. The tour
+// page's capture messages travel through the tour content script inside the
+// iframe, not through this page.
 
-import { ASKFUTURES_ORIGIN, ChartContext, PAGE_MSG, RUNTIME_MSG } from './shared';
+import {
+  ASKFUTURES_ORIGIN,
+  ChartContext,
+  PAGE_MSG,
+  RESEARCH_TOUR_URL,
+  RUNTIME_MSG,
+  SESSIONS_URL,
+  STORAGE_KEY_PANEL_TAB,
+} from './shared';
 
 const iframe = document.querySelector('iframe')!;
 
@@ -32,9 +48,42 @@ iframe.addEventListener('load', () => {
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === RUNTIME_MSG.chartContextPing && typeof message.tabId === 'number') {
     chartTabId = message.tabId;
+    void registerPanelTab();
     void refresh();
   }
 });
+
+// Tell the service worker which tab this panel sits next to — the tab tour
+// captures navigate. Session storage (trusted contexts only). One global
+// slot, so with panels open in several windows at once the most recent to
+// bind wins and tour captures target that panel's tab; a message from a
+// panel iframe carries no window identity, so the binding can't be
+// window-scoped without new plumbing. Known limitation — run one tour at a
+// time.
+async function registerPanelTab(): Promise<void> {
+  if (chartTabId === null) return;
+  await chrome.storage.session.set({ [STORAGE_KEY_PANEL_TAB]: chartTabId });
+}
+
+// The header toggle swaps the iframe between the regular askfutures.com view
+// and the tour page. Plain src assignment: each view is a fresh document, and
+// the tour page re-announces itself to the tour content script on mount.
+const NAV_VIEWS: Record<string, string> = {
+  sessions: SESSIONS_URL,
+  tour: RESEARCH_TOUR_URL,
+};
+
+for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-view]')) {
+  button.addEventListener('click', () => {
+    const url = NAV_VIEWS[button.dataset.view ?? ''];
+    if (!url) return;
+    iframeReady = false;
+    iframe.src = url;
+    for (const other of document.querySelectorAll<HTMLButtonElement>('button[data-view]')) {
+      other.classList.toggle('active', other === button);
+    }
+  });
+}
 
 // The askfutures page inside the iframe can request a fresh snapshot.
 window.addEventListener('message', (event: MessageEvent) => {
@@ -52,6 +101,7 @@ async function init(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id === undefined) return;
   chartTabId = tab.id;
+  await registerPanelTab();
   await refresh();
 }
 

@@ -123,6 +123,61 @@ Every scraped field is nullable and the snapshot degrades per field: the DOM
 scrape is regex-over-legend-text with no stable contract from GoCharting, so a
 redesign silently empties fields rather than erroring.
 
+## The research-tour messages
+
+The guided research tour runs `https://askfutures.com/research-tour` inside the
+side panel's iframe. That page owns every API call and all tour state — the
+extension never holds tokens. The extension's tour content script (injected
+only on `/research-tour`, including in the panel's iframe) shares the page's
+window and speaks the same kind of handshake as the clip contract, extended
+with candidate tags:
+
+```
+page       → { type: "askfutures-tour-ready" }
+page       → { type: "askfutures-tour-capture", pipeline_id, candidate_id, url }
+extension  → { type: "askfutures-tour-clip", nonce: "<uuid>",
+               tags: { pipeline_id, candidate_id }, payload: { … } }
+page       → { type: "askfutures-tour-clip-ack", nonce: "<echoed>" }
+extension  → { type: "askfutures-tour-capture-error",
+               tags: { pipeline_id, candidate_id }, reason: "…" }   // additive
+```
+
+Rules:
+
+- **Origin-checked both ways**, exactly as for clips: each side ignores any
+  message whose `event.origin` is not `https://askfutures.com` or whose
+  `event.source` is not the page's own `window`.
+- **A capture is fulfilled by a user click, not by the message.** On
+  `askfutures-tour-capture` the extension navigates the tab the panel sits
+  next to (`chrome.tabs.update` — no new permissions) to the candidate URL and
+  flags its toolbar action. Extraction runs only when the user then clicks the
+  toolbar button on that tab: the click is the approval, and its `activeTab`
+  grant is the only page access the capture ever gets. There are still no
+  broad host permissions; a candidate the user never approves is never read.
+- **Pending captures are narrow and expire.** A capture claims the toolbar
+  click only on the specific tab it navigated, only while the side panel is
+  still open, only for 15 minutes, and only while that tab still plausibly
+  shows the candidate — on the candidate's origin, or within the candidate's
+  own initial load (redirects included). Navigating the tab somewhere else
+  entirely voids the pending capture, so an abandoned tour can't repurpose a
+  later ordinary clip click and an ordinary clip on a wandered-off tab stays
+  an ordinary clip.
+- **Payload = the clip payload.** `payload` is the same v1 clip payload as the
+  `/analyze` contract, same validation, same 2 MB cap. `tags` carry two opaque
+  ids minted by askfutures.com and echoed back verbatim; nothing else crosses
+  the boundary (this repo is public).
+- **Nonce + buffer-clear-on-ack**, as for clips: the tagged clip is buffered in
+  `chrome.storage.session`, delivered with a fresh nonce (re-posted until the
+  ack, since the tour page announces readiness only once), and the buffer is
+  cleared only on an ack whose nonce the extension actually sent.
+- **Failures are delivered, never silent.** A candidate that can't be captured
+  (no caption track, unreadable page, over the cap) produces a one-shot
+  `askfutures-tour-capture-error` with the reason, and the same reason is shown
+  to the user in the extension UI. The error message type is **additive**: it
+  is documented here first, and a page that predates it simply ignores the
+  type and falls back to its own capture timeout. It carries no nonce and needs
+  no ack.
+
 ## Trust model
 
 - **The page trusts nothing.** Anything on the web can postMessage at
@@ -147,9 +202,9 @@ redesign silently empties fields rather than erroring.
   click is the confirmation and `/analyze` opens directly, where the page's own
   preview-and-confirm step still applies before anything is analyzed. The one
   host permission
-  (`https://*.askfutures.com/*`) exists to inject the handoff content script
-  above and to let the askfutures.com session work inside the extension's side
-  panel (auth cookies live on `clerk.askfutures.com`, so the pattern covers
+  (`https://*.askfutures.com/*`) exists to inject the handoff and research-tour
+  content scripts above and to let the askfutures.com session work inside the
+  extension's side panel (auth cookies live on `clerk.askfutures.com`, so the pattern covers
   subdomains).
 - **No remote code.** All code, including the bundled defuddle and pdf.js
   libraries, ships in the package. The extension fetches no code at runtime

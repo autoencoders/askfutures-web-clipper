@@ -315,11 +315,34 @@ const MONTH_CODES = 'FGHJKMNQUVXZ';
 // alongside it so nothing is actually lost.
 const DATED_CONTRACT = new RegExp(`^([A-Z0-9]{1,4}?)[${MONTH_CODES}]\\d{1,2}$`);
 
+// Product roots that differ between the charting site and askfutures.com,
+// which speaks CME Group roots (see the supported-symbols reference). Tradovate
+// names the contract the *listing exchange* does, and for a few markets that is
+// not the CME root: Coinbase lists nano bitcoin as BIT where CME's bitcoin is
+// BTC, and Eurex lists FESX/FDAX where askfutures.com lists STOX/DAX. Same
+// market, different ticker — so translate, rather than hand the user "symbol
+// not supported" for a market the app analyses perfectly well.
+//
+// The mapping is by *market*, not by contract size: Coinbase's nano bitcoin is
+// 0.01 BTC against CME's 5, so the price series is the same market but the
+// contract specs are not. That is why it maps to the full-size root rather than
+// the micro (MBT) — the root names the market, and askfutures.com picks a size
+// from there. ChartContext.contract still carries the exact contract charted.
+//
+// Roots absent from this table pass through untouched: a market askfutures.com
+// genuinely does not cover should say so rather than be silently swapped for a
+// neighbouring one.
+const PRODUCT_ALIASES: Record<string, string> = {
+  BIT: 'BTC', // Coinbase Nano Bitcoin → CME Bitcoin
+  FESX: 'STOX', // Eurex Euro STOXX 50
+  FDAX: 'DAX', // Eurex DAX
+};
+
 export function isDatedContract(ticker: string | null): boolean {
   return !!ticker && DATED_CONTRACT.test(ticker);
 }
 
 export function continuousTicker(ticker: string | null): string | null {
   const root = ticker && DATED_CONTRACT.exec(ticker)?.[1];
-  return root ? `${root}1!` : ticker;
+  return root ? `${PRODUCT_ALIASES[root] ?? root}1!` : ticker;
 }

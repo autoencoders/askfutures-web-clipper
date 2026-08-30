@@ -1,7 +1,7 @@
 ---
 name: publish-local-extension
 description: Build/refresh the AskFutures Clipper's unpacked dist/ folder in the stable local checkout so a Reload in chrome://extensions picks up the latest code, with a stamped dev version as visible proof the reload took. No packaging, no store upload. Triggers on "/publish-local-extension", "build the local extension", "update the unpacked extension", "refresh my local extension build", "update the dev extension in Chrome".
-argument-hint: "[path-to-checkout]  (default: ~/conductor/repos/askfutures-web-clipper)"
+argument-hint: "[path-to-checkout]  (default: ~/wt/repos/askfutures-web-clipper)"
 user-invocable: true
 ---
 
@@ -15,18 +15,28 @@ touch the Chrome Web Store (for that, use `/publish-chrome-extension`).
 ## Which folder Chrome loads
 
 An unpacked extension is loaded from a `dist/` directory on disk and does
-**not** auto-update. The stable checkout for local dev is the Conductor "repos"
-copy — **not** an ephemeral workspace/worktree, whose path changes and whose
-extension would get a different unpacked ID. Resolve the target directory `D`
-in this order (no hardcoded usernames — this must work on any machine):
+**not** auto-update. Chrome derives an unpacked extension's **ID from its path**,
+so the target must be the one checkout whose path never changes: the `repos/`
+copy that `wt` clones into — **not** a `workspaces/` worktree, which is
+ephemeral, gets a different unpacked ID, and breaks the install the moment it
+is removed. One unpacked install off `repos/` serves every branch.
+
+Resolve the target directory `D` in this order (no hardcoded usernames — this
+must work on any machine):
 
 1. The argument, if given.
-2. `$HOME/conductor/repos/askfutures-web-clipper`, if it exists.
+2. `$HOME/wt/repos/askfutures-web-clipper`, if it exists.
 3. The current repo, if it *is* the clipper repo (has `src/manifest.json` and
-   `build.mjs`) and isn't an ephemeral worktree — warn that the unpacked ID is
-   path-dependent.
+   `build.mjs`) **and** is not a linked worktree — check with
+   `git -C "$D" rev-parse --git-common-dir`, which for a worktree points at
+   another checkout's `.git` rather than `$D/.git`. Warn that the unpacked ID
+   is path-dependent.
 4. Otherwise stop and ask where the unpacked extension is loaded from (the
    card in `chrome://extensions` shows the path under expanded details).
+
+Never silently build into a `workspaces/` worktree: a build there loads as a
+*second, separate* extension rather than refreshing the one already installed,
+which looks like the reload silently failing.
 
 Sanity-check `D` contains `package.json`, `src/manifest.json`, and `build.mjs`
 before doing anything.

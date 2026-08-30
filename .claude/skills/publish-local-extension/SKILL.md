@@ -43,18 +43,32 @@ before doing anything.
 
 ## Procedure
 
-1. **Sync to latest `origin/main` — only when safe (never clobber):**
-   - `git -C "$D" status --porcelain` — if **dirty**, do NOT pull; skip to the
-     build and warn that you're building the working tree as-is.
+1. **Always bring `D` up to `origin/main` before building.** Building stale
+   code is the failure this skill exists to prevent, and it hides well: step 4
+   stamps a *fresh* dev version on every run, so a build of week-old code
+   still shows a version that just went up. The user reads that as proof the
+   reload took. Never let a sync be skipped quietly.
+
    - `git -C "$D" fetch origin main -q`.
-   - Only if the checkout is on `main`
-     (`git -C "$D" branch --show-current` = `main`) **and** it fast-forwards
+   - `git -C "$D" status --porcelain` and
+     `git -C "$D" branch --show-current`, and record how far behind it is:
+     `git -C "$D" rev-list --count HEAD..origin/main`.
+   - **Clean, on `main`, and fast-forwards**
      (`git -C "$D" merge-base --is-ancestor HEAD origin/main`):
-     `git -C "$D" merge --ff-only origin/main`, then tell the user you updated
-     it.
-   - If on another branch or diverged, leave it alone and build the current
-     state — the user may be testing a branch on purpose; say so, noting how
-     many commits behind `origin/main` it is.
+     `git -C "$D" merge --ff-only origin/main`. Report the before → after
+     commit. This is the normal path.
+   - **Already up to date:** say so explicitly — "already at `<sha>`" — so a
+     no-op sync is never mistaken for a skipped one.
+   - **Anything else** — uncommitted changes, on another branch, or diverged:
+     do **not** pull (never clobber someone's work or yank them off a branch
+     they are testing on purpose) and do **not** build silently either. Say
+     which case it is and exactly how many commits behind `origin/main` the
+     checkout sits, then **ask** whether to build it as-is or to sort the
+     checkout out first. Only build stale when the user says to.
+   - If the checkout is behind and the user wants it fixed, the repair
+     depends on the case: commit or set aside the local changes, or switch
+     back to `main`. Do not invent a recovery — surface the state and let the
+     user choose.
 
 2. **Install deps if needed.** Run `( cd "$D" && npm ci )` if `node_modules/`
    is absent **or** if you just pulled (dependencies may have changed).
@@ -103,12 +117,16 @@ before doing anything.
 Tell the user the build succeeded, the stamped dev version, and the path to
 load:
 
-> Built `dist/` at `<D>/dist` (dev version `X.Y.Z.N`).
+> Built `dist/` at `<D>/dist` from `origin/main` at `<sha>` (dev version
+> `X.Y.Z.N`).
 > Load it at `chrome://extensions` → enable **Developer mode** → **Load
 > unpacked** → select that `dist/` folder. If it's already loaded, click the
 > **↻ reload** icon on the extension card — its **Version** should flip to
 > `X.Y.Z.N`; the trailing number climbs by one every run, so if it didn't
 > change, the Reload didn't take.
+
+Always name the commit the build came from. The dev version proves the reload
+took; only the commit proves *what* it reloaded.
 
 ## Notes
 

@@ -54,7 +54,15 @@ function scrape(): ChartScrape {
   if (!legend) {
     // No main legend (chart still loading, or a redesign broke the shape) —
     // study rows are searched document-wide, so still try for those.
-    return { ticker: null, timeframe: null, ohlc: null, indicators: findIndicatorRows() };
+    // barTime: the legend names the bar's fields but not its timestamp.
+    return {
+      ticker: null,
+      timeframe: null,
+      ohlc: null,
+      indicators: findIndicatorRows(),
+      barTime: null,
+      theme: null,
+    };
   }
   const text = collapse(legend.textContent ?? '');
   const tf = TIMEFRAME.exec(text);
@@ -73,6 +81,8 @@ function scrape(): ChartScrape {
     timeframe: tf ? tf[1].replace(/\s+/g, '') : null,
     ohlc: hasBar ? ohlc : null,
     indicators: findIndicatorRows(),
+    barTime: null,
+    theme: null, // no theme handoff on this site yet
   };
 }
 

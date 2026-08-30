@@ -46,15 +46,21 @@ an unreadable page) report the reason instead of silently disappearing.
 
 **One exception:** on trading sites — [gocharting.com](https://gocharting.com),
 [tradingview.com](https://tradingview.com),
+[tradovate.com](https://tradovate.com),
 [robinhood.com](https://robinhood.com),
 [ninjatrader.com](https://ninjatrader.com), and
 [cmegroup.com](https://cmegroup.com) — the toolbar button doesn't clip.
 It opens askfutures.com in Chrome's side panel instead, so the chart and
-AskFutures sit side by side in the same window. On gocharting.com and
-tradingview.com the panel also passes the chart's context into askfutures.com —
-ticker, timeframe, the indicators on the chart with their last values, and the
-last price — as a snapshot at panel open, refreshable on request (see
-[SECURITY.md](SECURITY.md) for the contract).
+AskFutures sit side by side in the same window. On gocharting.com,
+tradingview.com and tradovate.com the panel also passes the chart's context
+into askfutures.com — ticker, timeframe, the indicators on the chart with their
+last values, and the last price — as a snapshot at panel open, refreshable on
+request (see [SECURITY.md](SECURITY.md) for the contract). On tradovate.com
+the snapshot also carries the site's own design tokens, so the panel's chrome
+matches the terminal it sits beside instead of clashing with it. Reading only: no
+scraper writes to the page or synthesises input, and on Tradovate nothing
+outside the chart panel is read — not the account, balances, orders or
+positions that share that screen.
 
 ## Permissions — deliberately minimal
 

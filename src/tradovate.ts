@@ -173,11 +173,13 @@ function ohlcFrom(rows: DataBoxRows | null): ChartScrape['ohlc'] {
 // to fold them back together; rows it does not account for are still reported
 // individually, so a stale or missing config loses nothing but the grouping.
 //
-// Names stay as Tradovate's internal study ids — "bband", "sma", "psar",
-// "cmf" — where gocharting and tradingview both report display names, because
-// the display names are drawn on the canvas and are not in the DOM to read. A
-// lookup table is the obvious fix but would be guesswork for every study not
-// yet observed, so the raw id is reported rather than a wrong name.
+// The study id is all the DOM has — the display name is drawn on the canvas —
+// and Tradovate writes those ids lowercase ("sma", "rsi", "bband"), where
+// askfutures.com speaks TA-Lib's uppercase vocabulary (SMA, RSI, BBANDS). Sent
+// raw, an RSI on the chart reads to the app as an unsupported study, so
+// studyName() canonicalises: uppercase, which is already the right answer for
+// every id that is a TA-Lib name spelled in lower case, plus a table for the
+// few Tradovate spells differently.
 function groupIndicators(
   rows: DataBoxRows | null,
   ticker: string | null,
@@ -202,7 +204,7 @@ function groupIndicators(
       values.push(rows.values.get(label)!);
     }
     if (values.length === 0) continue;
-    out.push({ name: cfg.name, params: cfg.params, values });
+    out.push({ name: studyName(cfg.name), params: cfg.params, values });
   }
   // Volume is a row on the price series, not a study; drop it only once the
   // configured studies have had their chance to claim a plot of that name.
@@ -210,9 +212,24 @@ function groupIndicators(
   for (const label of rows.order) {
     if (out.length >= MAX_INDICATORS) break;
     if (claimed.has(label)) continue;
-    out.push({ name: label, params: null, values: [rows.values.get(label)!] });
+    out.push({ name: studyName(label), params: null, values: [rows.values.get(label)!] });
   }
   return out;
+}
+
+// Tradovate ids that are not simply the TA-Lib name in lower case. Only the
+// observed ones: an id absent here is uppercased and, if that is not a name
+// askfutures.com knows, it arrives as an unrecognised study — which is the
+// honest outcome, and better than guessing a mapping for a study nobody has
+// looked at. "cmf" (Chaikin Money Flow) is deliberately absent: TA-Lib has no
+// CMF, so there is nothing correct to map it to.
+const STUDY_NAMES: Record<string, string> = {
+  bband: 'BBANDS', // Bollinger Bands
+  psar: 'SAR', // Parabolic SAR
+};
+
+function studyName(id: string): string {
+  return STUDY_NAMES[id] ?? id.toUpperCase();
 }
 
 interface IndicatorConfig {

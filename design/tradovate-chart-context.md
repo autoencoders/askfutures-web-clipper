@@ -257,8 +257,8 @@ whole payload for a field it does not need. Documented in SECURITY.md.
   last. By box order it is `[48.9, 50, 70, 30]`.
 
 Verified end to end against the built artifact: `ESU6 5m` →
-`bband("20", [7726.74, 7715.41])`, `sma("14", [7721.88])`,
-`rsi("14", [38.3, 50, 70, 30])`, OHLC of the hovered bar, `bar_time
+`BBANDS("20", [7726.74, 7715.41])`, `SMA("14", [7721.88])`,
+`RSI("14", [38.3, 50, 70, 30])`, OHLC of the hovered bar, `bar_time
 "08/28/2026 13:45"`. `MSFT D` → ticker `MSFT`, timeframe `D`, `bar_time
 "06/13/2026"` (date only on a daily chart). Cold box → `ESU6` / `5m` with null
 values, as designed.
@@ -301,13 +301,14 @@ form askfutures.com asks for, and `contract` is what preserves the difference.
 
 ## Known limitations
 
-- **Study names are Tradovate's internal ids** — `bband`, `sma`, `psar`, `cmf`
-  — where the other two scrapers report display names. The display names are
-  drawn on the canvas and are not in the DOM (`plotLabels` came back empty). A
-  lookup table is the obvious fix but would be guesswork for every study not
-  yet observed, so the raw id is reported rather than a wrong name. Mapping
-  them is a reasonable follow-up, ideally on askfutures.com's side where the
-  list can grow without shipping an extension update.
+- **Study names come from Tradovate's internal ids** — `bband`, `sma`, `psar`,
+  `cmf` — because the display name is drawn on the canvas and is not in the DOM
+  to read. `studyName` canonicalises them to the TA-Lib vocabulary
+  askfutures.com speaks: uppercase by default (`sma` → `SMA`, `rsi` → `RSI`),
+  plus a table for the ids Tradovate spells differently (`bband` → `BBANDS`,
+  `psar` → `SAR`). A study neither uppercase-equal to a TA-Lib name nor in that
+  table — `cmf`, which TA-Lib has no function for — still arrives unrecognised,
+  which is the honest outcome rather than a guessed mapping.
 - **`.info-column.last-price-info` is unverified.** It is the only non-box
   candidate for a live last price, and it was empty during the probe (Sunday,
   market closed), so nothing depends on it yet. `last_close` currently comes

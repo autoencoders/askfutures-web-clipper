@@ -114,6 +114,7 @@ Rules:
   "source": "gocharting",              // or "tradingview", "tradovate"
   "source_url": "https://gocharting.com/terminal?ticker=CME:ES1%21",
   "ticker": "CME:ES1!",                // nullable; from the tab URL, legend fallback
+  "contract": null,                    // nullable; the dated contract, when the site charts one
   "timeframe": "30m",                  // nullable; from the chart legend
   "last_close": 7586.25,               // nullable; C of the current bar, tab-title fallback
   "ohlc": {                            // nullable; the legend's current bar
@@ -166,9 +167,18 @@ Every scraped field is nullable and the snapshot degrades per field: the DOM
 scrape has no stable contract from any of these sites, so a redesign silently
 empties fields rather than erroring.
 
-`bar_time` is additive to v1 — a reader that ignores it sees exactly the
-snapshot it saw before, so `v` stays `1` and is reserved for changes that break
-existing readers. It names the bar the values describe, as the site renders it
+`ticker` is always a continuous symbol. Tradovate charts *dated* contracts
+("ESU6" is the September 2026 E-mini), which askfutures.com does not accept, so
+the service worker converts a bare dated symbol to its front-month continuous
+form ("ES1!") and puts the dated one in `contract`. A symbol that is not a bare
+dated contract — an exchange-qualified "CME:ES1!", an equity, another site's
+dialect — is passed through untouched and leaves `contract` null. The
+conversion is to the *front* month by definition of "1!", so a chart of a back
+month still yields `ES1!`; `contract` is what distinguishes them.
+
+`contract` and `bar_time` are both additive to v1 — a reader that ignores them
+sees exactly the snapshot it saw before, so `v` stays `1` and is reserved for
+changes that break existing readers. `bar_time` names the bar the values describe, as the site renders it
 ("08/28/2026 15:00", exchange-local, no timezone), and is null where the site
 does not say. It matters most on Tradovate, whose value box shows the bar the
 user last hovered rather than the latest one, so the values there can be older

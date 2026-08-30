@@ -263,6 +263,31 @@ Verified end to end against the built artifact: `ESU6 5m` →
 "06/13/2026"` (date only on a daily chart). Cold box → `ESU6` / `5m` with null
 values, as designed.
 
+## Dated contracts vs continuous symbols
+
+Tradovate's chart header names a dated contract — `ESU6`, the September 2026
+E-mini — where gocharting and tradingview both hand over a continuous symbol
+(`CME:ES1!`). askfutures.com accepts only the continuous form, so a Tradovate
+snapshot posted verbatim comes back as "that symbol is not supported yet",
+which puts the burden on the user to retype a symbol off the chart they are
+already looking at.
+
+The service worker therefore converts: `ChartContext.ticker` carries the
+front-month continuous form (`ES1!`) and the new `ChartContext.contract` keeps
+the dated symbol (`ESU6`). `continuousTicker` in `src/shared.ts` splits on the
+trailing month code + year, which is what makes roots that end in a month code
+unambiguous (`MNQU6` → `MNQ1!`, never `MN|Q|U6`) and what keeps equities out
+(`MSFT` has no year digits, so it does not match and passes through).
+
+The conversion happens in the service worker, **not** in this scraper, and that
+placement is load-bearing: `indicatorConfig` matches the scraped symbol string
+against the persisted workspace to recover indicator parameters, so the scrape
+has to keep saying `ESU6`.
+
+Front month is what `1!` means, so charting a back month (`ESZ6` while `ESU6`
+is front) still yields `ES1!` — the imprecision is inherent in the continuous
+form askfutures.com asks for, and `contract` is what preserves the difference.
+
 ## Known limitations
 
 - **Study names are Tradovate's internal ids** — `bband`, `sma`, `psar`, `cmf`

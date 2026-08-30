@@ -172,7 +172,11 @@ empties fields rather than erroring.
 the service worker converts a bare dated symbol to its front-month continuous
 form ("ES1!") and puts the dated one in `contract`. A symbol that is not a bare
 dated contract — an exchange-qualified "CME:ES1!", an equity, another site's
-dialect — is passed through untouched and leaves `contract` null. The
+dialect — is passed through untouched and leaves `contract` null. A handful of
+roots are also translated to the CME root askfutures.com speaks, where the
+listing exchange names the same market differently (Coinbase's nano bitcoin
+"BIT" → "BTC", Eurex's "FESX" → "STOX"); roots outside that table are not
+remapped, so a genuinely unsupported market still reads as one. The
 conversion is to the *front* month by definition of "1!", so a chart of a back
 month still yields `ES1!`; `contract` is what distinguishes them.
 

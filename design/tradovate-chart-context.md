@@ -284,6 +284,17 @@ placement is load-bearing: `indicatorConfig` matches the scraped symbol string
 against the persisted workspace to recover indicator parameters, so the scrape
 has to keep saying `ESU6`.
 
+Roots differ across listing exchanges, too. Tradovate names the contract its
+exchange lists, so the Coinbase nano bitcoin on the chart is `BITU6` while
+askfutures.com knows bitcoin as the CME root `BTC` — the snapshot would be
+rejected for a market the app covers fully. `PRODUCT_ALIASES` translates the
+few roots where that happens (`BIT` → `BTC`, `FESX` → `STOX`, `FDAX` → `DAX`),
+mapping by *market* rather than contract size: nano bitcoin is 0.01 BTC against
+CME's 5, so the alias targets the full-size root that names the market and
+leaves the size to askfutures.com. Anything not in the table passes through, so
+an unsupported market still reports as unsupported instead of being silently
+swapped for a neighbour.
+
 Front month is what `1!` means, so charting a back month (`ESZ6` while `ESU6`
 is front) still yields `ES1!` — the imprecision is inherent in the continuous
 form askfutures.com asks for, and `contract` is what preserves the difference.

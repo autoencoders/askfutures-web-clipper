@@ -36,6 +36,9 @@ function scrape(): ChartScrape {
     timeframe: interval(),
     ohlc: series ? ohlcFrom(series) : null,
     indicators: indicators(),
+    // The legend renders the bar's values but not its timestamp.
+    barTime: null,
+    theme: null, // no theme handoff on this site yet
   };
 }
 

@@ -14,11 +14,32 @@
     <meta charset="utf-8" />
     <title>AskFutures</title>
     <style>
+      /* Two palettes in one: the :root values are the panel's own look, used
+         whenever it opens next to a site that hands over no theme. When the
+         chart tab does hand one over, sidepanel.js overwrites these same
+         custom properties with that site's live values, so the panel restyles
+         itself without a second stylesheet. Everything below therefore reads
+         from a variable — a literal colour here is a colour that can never
+         match the site next door. */
+      :root {
+        --af-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --af-background: #0f1626;
+        --af-surface: #0f1626;
+        --af-divider: rgba(255, 255, 255, 0.08);
+        --af-text: #e8edf6;
+        --af-text-dim: #8a97ad;
+        --af-accent: #3b82f6;
+        --af-tab-height: 26px;
+        --af-tab-padding-inline: 10px;
+        --af-tab-radius: 6px;
+        --af-tab-active-bg: rgba(59, 130, 246, 0.22);
+        --af-tab-active-text: #e8edf6;
+      }
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #0f1626;
+        background: var(--af-background);
         display: flex;
         flex-direction: column;
       }
@@ -26,31 +47,37 @@
         display: flex;
         gap: 4px;
         padding: 6px 8px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        font: 12px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        background: var(--af-surface);
+        border-bottom: 1px solid var(--af-divider);
+        font: 12px/1 var(--af-font);
       }
       nav button {
         border: 0;
-        border-radius: 6px;
-        padding: 5px 10px;
+        border-radius: var(--af-tab-radius);
+        /* The height is the site's tab height when one was handed over, which
+           is a line-box height rather than a padded one — hence padding on the
+           inline axis only, with the block axis left to the height. */
+        height: var(--af-tab-height);
+        padding: 0 var(--af-tab-padding-inline);
         background: none;
-        color: #8a97ad;
+        color: var(--af-text-dim);
         font: inherit;
         cursor: pointer;
       }
       nav button:hover {
-        color: #e8edf6;
-        background: rgba(255, 255, 255, 0.08);
+        color: var(--af-text);
+        background: var(--af-row-hover, rgba(255, 255, 255, 0.08));
       }
       nav button.active {
-        color: #e8edf6;
-        background: rgba(59, 130, 246, 0.22);
+        color: var(--af-tab-active-text);
+        background: var(--af-tab-active-bg);
       }
       iframe {
         display: block;
         border: 0;
         width: 100%;
         flex: 1;
+        background: var(--af-background);
       }
     </style>
   </head>

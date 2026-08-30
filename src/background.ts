@@ -43,6 +43,7 @@ import {
 const SIDE_PANEL_DOMAINS = [
   'gocharting.com',
   'tradingview.com',
+  'tradovate.com',
   'robinhood.com',
   'ninjatrader.com',
   'cmegroup.com',
@@ -949,6 +950,18 @@ const CHART_SITES: ChartSite[] = [
     // before the up/down arrow (the symbol may contain digits, so anchor on it).
     lastPriceFromTitle: (title) => firstNumber(/([\d,]+(?:\.\d+)?)\s*[▲▼△▽]/, title),
   },
+  {
+    source: 'tradovate',
+    scraperFile: 'tradovate.js',
+    matchesHost: (h) => h === 'tradovate.com' || h.endsWith('.tradovate.com'),
+    // The whole app lives at trader.tradovate.com with no path or query, and
+    // the tab title is the workspace layout's name ("Tradovate - Dark
+    // Default") — neither carries a symbol or a price. Unlike the two sites
+    // above, the DOM scrape is not a supplement here, it is the only source;
+    // when it fails the snapshot is empty rather than partial.
+    tickerFromUrl: () => null,
+    lastPriceFromTitle: () => null,
+  },
 ];
 
 function chartSiteFor(url: string | undefined): ChartSite | null {
@@ -991,6 +1004,8 @@ async function scrapeChartContext(
     last_close: scrape?.ohlc?.close ?? site.lastPriceFromTitle(tab.title),
     ohlc: scrape?.ohlc ?? null,
     indicators: scrape?.indicators ?? [],
+    bar_time: scrape?.barTime ?? null,
+    theme: scrape?.theme ?? null,
     scraped_at: new Date().toISOString(),
   };
 }

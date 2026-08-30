@@ -6,6 +6,13 @@
 // user submits a trading idea). Snapshots only — there is no live observation
 // of the chart. See SECURITY.md for the message contract.
 //
+// The snapshot also carries the charting site's own design tokens, which the
+// panel applies to its own chrome (applyTheme) before forwarding the whole
+// snapshot on. That is as far as the extension can take it: the panel's body
+// is a cross-origin iframe on askfutures.com, so nothing here can style it —
+// the page has to read theme off the message and style itself. See
+// design/tradovate-chart-context.md § "Matching the site's look".
+//
 // The panel also hosts the guided research tour: the header's toggle points
 // the iframe at askfutures.com/research-tour, whose page owns all tour state
 // and API calls (the extension never holds tokens). The panel's only tour
@@ -17,6 +24,7 @@
 import {
   ASKFUTURES_ORIGIN,
   ChartContext,
+  ChartTheme,
   PAGE_MSG,
   RESEARCH_TOUR_URL,
   RUNTIME_MSG,
@@ -114,6 +122,7 @@ async function refresh(): Promise<void> {
     });
     if (response?.ok && response.context) {
       latest = response.context as ChartContext;
+      applyTheme(latest.theme);
       // Visible in the panel's DevTools — the askfutures.com counterpart may
       // not exist yet, so this is the one place a human can see the snapshot.
       console.info('[askfutures-clipper] chart context', latest);
@@ -133,4 +142,36 @@ function post(): void {
     { type: PAGE_MSG.chartContext, payload: latest },
     ASKFUTURES_ORIGIN,
   );
+}
+
+
+// Restyle the panel's own chrome — the nav bar, which is all the extension
+// renders — to the charting site's tokens, by overwriting the custom
+// properties sidepanel.html declares. A missing token leaves that property
+// alone, so a site that reports half a theme gets a half-matched panel rather
+// than a broken one.
+//
+// The iframe below the nav is a different origin and cannot be reached from
+// here; askfutures.com has to theme itself from the same tokens, which reach
+// it in the snapshot this panel forwards.
+function applyTheme(theme: ChartTheme | null): void {
+  if (!theme) return;
+  const root = document.documentElement;
+  const set = (property: string, value: string | null | undefined): void => {
+    if (value) root.style.setProperty(property, value);
+  };
+  set('--af-font', theme.fontFamily);
+  set('--af-background', theme.color.background);
+  // The nav sits on a panel surface, not on the page behind it.
+  set('--af-surface', theme.color.surface);
+  set('--af-divider', theme.color.divider);
+  set('--af-text', theme.color.text);
+  set('--af-text-dim', theme.color.textDim ?? theme.color.textMuted);
+  set('--af-accent', theme.color.accent);
+  set('--af-row-hover', theme.color.rowHover);
+  set('--af-tab-height', theme.tab.height);
+  set('--af-tab-padding-inline', theme.tab.paddingInline);
+  set('--af-tab-radius', theme.tab.borderRadius);
+  set('--af-tab-active-bg', theme.tab.activeBackground);
+  set('--af-tab-active-text', theme.tab.activeText);
 }

@@ -92,10 +92,18 @@ Rules:
   posts `askfutures-chart-context-request` and gets a fresh snapshot. There is
   no live observation of the chart; every snapshot is an explicit scrape.
 - **Scoped scraping.** The scrape runs only in the tab the panel was opened
-  against, only on sites with a scraper (`gocharting.com` and
-  `tradingview.com` today), and only under the `activeTab` grant the opening
+  against, only on sites with a scraper (`gocharting.com`, `tradingview.com`
+  and `tradovate.com` today), and only under the `activeTab` grant the opening
   click produced. The service worker refuses requests for any other tab or
   site, and only extension pages (never content scripts) may request a scrape.
+- **Read-only, always.** No scraper writes to the page, dispatches an event or
+  synthesises input. This is worth stating for `tradovate.com` in particular,
+  which is a live brokerage: the scraper reads the chart panel's header and
+  its value box and nothing else. It never touches the order ticket, the
+  positions panel or the account switcher, and the account number, balances,
+  orders and positions on that screen are never read and never leave the tab.
+  What the snapshot carries is what the chart is showing — symbol, interval,
+  the hovered bar's OHLC, and the studies' rendered values.
 - **Validation.** The page treats the payload as untrusted input, like a clip.
 
 ### Chart-context payload (v1)
@@ -103,7 +111,7 @@ Rules:
 ```jsonc
 {
   "v": 1,
-  "source": "gocharting",              // or "tradingview"
+  "source": "gocharting",              // or "tradingview", "tradovate"
   "source_url": "https://gocharting.com/terminal?ticker=CME:ES1%21",
   "ticker": "CME:ES1!",                // nullable; from the tab URL, legend fallback
   "timeframe": "30m",                  // nullable; from the chart legend
@@ -115,13 +123,57 @@ Rules:
     { "name": "EMA", "params": "20", "values": [7581.25] },
     { "name": "MACD", "params": "12, 26, 9", "values": [-3.2, 1.1, -4.3] }
   ],
+  "bar_time": null,                    // nullable; which bar the values are from
+  "theme": null,                       // nullable; the site's own design tokens
   "scraped_at": "2026-07-13T14:05:00Z" // ISO-8601 UTC, extension clock
 }
 ```
 
+`theme`, where a scraper reports it, carries the charting site's own design
+tokens so the panel can match rather than clash — colours, its UI font stack,
+and metrics for a tab strip and a data grid, each a CSS value taken verbatim
+from the page:
+
+```jsonc
+"theme": {
+  "scheme": "dark",                    // from the page background's luminance
+  "fontFamily": "Roboto, sans-serif",
+  "color": {
+    "background": "rgb(0, 0, 0)", "surface": "#202228", "surfaceRaised": "#323840",
+    "border": "#323840", "divider": "#363940",
+    "text": "#fff", "textMuted": "rgb(126, 131, 140)", "textDim": "rgb(76, 81, 89)",
+    "accent": "#056dff", "up": "#35a24a", "down": "#e52545",
+    "rowStripe": "#323840", "rowHover": "#ffffff14"
+  },
+  "tab":  { "height": "30px", "paddingInline": "5px", "borderRadius": "2px 2px 0px 0px",
+            "activeBackground": "rgb(32, 34, 40)", "activeText": "rgb(255, 255, 255)",
+            "idleText": "rgb(76, 81, 89)" },
+  "grid": { "rowHeight": "20px", "cellPaddingInline": "10px", "headerFontSize": "10px",
+            "headerFontWeight": "500", "headerTextTransform": "uppercase",
+            "headerText": "rgb(126, 131, 140)" }
+}
+```
+
+It is read, never guessed — the site may be on a light theme — and it is read
+from the same custom properties and elements the site renders from, so a
+retheme on their side carries over without an extension release. Two notes for
+a consumer: these are strings from someone else's stylesheet, so treat them as
+untrusted input like the rest of the payload (interpolate them into CSS custom
+properties, never into markup), and every field is nullable — style what is
+present and keep your own value for what is not.
+
 Every scraped field is nullable and the snapshot degrades per field: the DOM
-scrape is regex-over-legend-text with no stable contract from GoCharting, so a
-redesign silently empties fields rather than erroring.
+scrape has no stable contract from any of these sites, so a redesign silently
+empties fields rather than erroring.
+
+`bar_time` is additive to v1 — a reader that ignores it sees exactly the
+snapshot it saw before, so `v` stays `1` and is reserved for changes that break
+existing readers. It names the bar the values describe, as the site renders it
+("08/28/2026 15:00", exchange-local, no timezone), and is null where the site
+does not say. It matters most on Tradovate, whose value box shows the bar the
+user last hovered rather than the latest one, so the values there can be older
+than `scraped_at` by any amount. Treat a null `bar_time` alongside a null
+`ohlc` as "this chart's values were not readable", not as an error.
 
 ## The research-tour messages
 

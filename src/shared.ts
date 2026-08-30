@@ -179,7 +179,7 @@ export interface ChartIndicator {
 
 export interface ChartContext {
   v: 1;
-  source: 'gocharting' | 'tradingview';
+  source: 'gocharting' | 'tradingview' | 'tradovate';
   source_url: string;
   ticker: string | null; // "CME:ES1!"
   timeframe: string | null; // "30m", "4h", "1D", …
@@ -191,7 +191,65 @@ export interface ChartContext {
     close: number | null;
   } | null;
   indicators: ChartIndicator[];
+  // Which bar `ohlc` and the indicator values describe, as the site renders it
+  // ("08/28/2026 15:00") — exchange-local, no timezone, so it is a label to
+  // show rather than a timestamp to compute with. Null where the site does not
+  // say (gocharting, tradingview). Tradovate does say, and there it matters:
+  // the values come from whichever bar the crosshair is on, which is not
+  // necessarily the latest. Additive to v1 on purpose — a consumer that
+  // ignores it reads exactly the snapshot it read before, so `v` stays 1 and
+  // remains reserved for changes that break existing readers.
+  bar_time: string | null;
+  // The site's design tokens, so the panel next to it can match. Null on sites
+  // whose scraper does not read them. Additive to v1, like bar_time.
+  theme: ChartTheme | null;
   scraped_at: string; // ISO-8601 UTC, extension clock
+}
+
+// The charting site's own design tokens, read live from the page so the panel
+// beside it can match rather than clash. Read, not guessed: the site may be on
+// a light theme, and hardcoding a dark palette would be wrong half the time.
+//
+// Every field is a CSS value taken verbatim from the site (a colour, a length,
+// a font stack), so a consumer can drop them straight into custom properties.
+// Nullable throughout — a site with no scraper, or one whose tokens moved,
+// yields null and the consumer keeps its own styling.
+export interface ChartTheme {
+  scheme: 'dark' | 'light'; // derived from the page background's luminance
+  fontFamily: string | null; // the site's UI font stack
+  color: {
+    background: string | null; // the page behind everything
+    surface: string | null; // a panel's own background
+    surfaceRaised: string | null; // a box/well inside a panel
+    border: string | null;
+    divider: string | null;
+    text: string | null;
+    textMuted: string | null; // column headings, secondary labels
+    textDim: string | null; // inactive tabs, disabled controls
+    accent: string | null;
+    up: string | null; // rising price — NOT the same as a success/status green
+    down: string | null; // falling price
+    rowStripe: string | null;
+    rowHover: string | null;
+  };
+  // Metrics for the two structures worth matching: a tab strip and a data grid.
+  // Lengths carry their unit ("30px") so they can be used as-is.
+  tab: {
+    height: string | null;
+    paddingInline: string | null;
+    borderRadius: string | null;
+    activeBackground: string | null;
+    activeText: string | null;
+    idleText: string | null;
+  };
+  grid: {
+    rowHeight: string | null;
+    cellPaddingInline: string | null;
+    headerFontSize: string | null;
+    headerFontWeight: string | null;
+    headerTextTransform: string | null;
+    headerText: string | null;
+  };
 }
 
 // The partial context a per-site scraper reads from the page (isolated world)
@@ -209,6 +267,8 @@ export interface ChartScrape {
     close: number | null;
   } | null;
   indicators: ChartIndicator[];
+  barTime: string | null;
+  theme: ChartTheme | null;
 }
 
 // executeScript swallows in-page exceptions (the result becomes null), so the

@@ -6,9 +6,12 @@
      indicators, last values) from the chart tab into the iframe, and the
      header's toggle swaps the iframe to askfutures.com/research-tour for the
      guided research tour (the tour page owns all tour state — the panel
-     chrome stays this one slim bar). askfutures.com allows being framed by
-     the extension; the browser session carries in because the extension holds
-     the askfutures.com host permission. -->
+     chrome stays this one slim bar). Whether the panel loads at all is the
+     site's call, not the extension's: Chrome renders its own "refused to
+     connect" page unless askfutures.com serves a frame-ancestors naming this
+     extension's chrome-extension:// origin, and the signed-in session only
+     carries into the frame if those cookies are SameSite=None — a panel is a
+     cross-site context, host permission notwithstanding. -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />

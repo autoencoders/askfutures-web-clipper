@@ -181,7 +181,14 @@ export interface ChartContext {
   v: 1;
   source: 'gocharting' | 'tradingview' | 'tradovate';
   source_url: string;
-  ticker: string | null; // "CME:ES1!"
+  ticker: string | null; // "CME:ES1!" — continuous, never a dated contract
+  // The dated contract the site actually charts ("ESU6"), when it charts one
+  // rather than a continuous symbol; null otherwise. `ticker` above is the
+  // continuous form derived from it by continuousTicker(), which is the
+  // dialect askfutures.com accepts — this field is the precision that
+  // conversion drops, kept so a consumer can tell September from December.
+  // Additive to v1, like bar_time and theme below.
+  contract: string | null; // "ESU6"
   timeframe: string | null; // "30m", "4h", "1D", …
   last_close: number | null; // C of the in-progress bar = live last price
   ohlc: {
@@ -281,4 +288,38 @@ declare global {
   interface Window {
     __askfuturesChartScrape: () => ChartScrapeOutcome;
   }
+}
+
+
+// CME month codes: F = January … Z = December.
+const MONTH_CODES = 'FGHJKMNQUVXZ';
+
+// Tradovate charts a *dated* contract — "ESU6" is the September 2026 E-mini —
+// while gocharting and tradingview hand over the continuous form ("CME:ES1!")
+// and askfutures.com only accepts that. A dated symbol therefore arrives as an
+// unsupported ticker, so convert it here rather than making the user retype
+// the chart they are already looking at.
+//
+// The split point is the trailing month letter plus a 1–2 digit year, anchored
+// at the end. Those year digits are what disambiguates a root that itself ends
+// in a month code: "MNQU6" can only split as MNQ|U|6, because MN|Q|U6 leaves
+// "U6" where digits must be. They also keep equities out of it — "MSFT" would
+// split as MSF|T|"" if an empty year were allowed, and does not match at all
+// as written. Anything that is not a bare dated contract (an exchange-
+// qualified "CME:ES1!", a stock, a symbol in another site's dialect) matches
+// nothing and is returned untouched.
+//
+// "1!" means the *front* month, so charting a back month (ESZ6 while ESU6 is
+// front) still yields ES1!. That imprecision is inherent in the continuous
+// form askfutures.com asks for; ChartContext.contract keeps the dated symbol
+// alongside it so nothing is actually lost.
+const DATED_CONTRACT = new RegExp(`^([A-Z0-9]{1,4}?)[${MONTH_CODES}]\\d{1,2}$`);
+
+export function isDatedContract(ticker: string | null): boolean {
+  return !!ticker && DATED_CONTRACT.test(ticker);
+}
+
+export function continuousTicker(ticker: string | null): string | null {
+  const root = ticker && DATED_CONTRACT.exec(ticker)?.[1];
+  return root ? `${root}1!` : ticker;
 }

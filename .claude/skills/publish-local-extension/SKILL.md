@@ -109,7 +109,28 @@ before doing anything.
    are invalid. Unpacked **Reload** does not require the version to increase,
    but keeping it monotonic avoids any ambiguity.)
 
-5. **Confirm the output.** Verify `dist/manifest.json` exists and report the
+5. **Pin the unpacked ID to the Web Store ID.** Chrome derives an unpacked
+   extension's ID from its path, so the dev build would otherwise load under a
+   different origin than the published one — and askfutures.com only allows
+   framing (`frame-ancestors`) by the *published* extension's origin, so the
+   side panel would show "askfutures.com refused to connect" in the dev build
+   even though it works in the store build. Adding the store item's **public**
+   key to the built manifest gives the unpacked build the store ID:
+
+   ```bash
+   node -e 'const f=process.argv[1],k=process.argv[2],fs=require("fs");
+   const m=JSON.parse(fs.readFileSync(f,"utf8")); m.key=k;
+   fs.writeFileSync(f,JSON.stringify(m,null,2)+"\n");
+   console.log("pinned unpacked id \u2192 fnodahfcecappofoiphcdfcabbpaahla");' \
+     "$D/dist/manifest.json" \
+     "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArqAWmzp9RwVItkRYYAmYyPDGnVJZBcI217LP0o9li+943zSdbhA+ewu0qWPBas/h4TurTLCxR8py7RnBQJ6byVQVsxycC3Vtks5sVCwAoHqVDqWOCiH2dnpMHr8j60d+Nja4BRepZcZys1bvnxLwMao/fi/QLuL80WNdNzulIPTy/IuZwO8/N1tuWAfvSKol3CGBvhE7BVys/MUAv/EbNT+Eo5xdOH67ZoqVKCHgapKcYcjVHa4Du8Y5neJGLo+pgg+WzA0dy//lpr7VOUFc4mIV5h8V0f8PYHuAx1WfX+EIz8J0DINNdRoNOBnHwpfb/HWt7AQ2DeV68lh7QGlD3QIDAQAB"
+   ```
+
+   Like the version stamp, this edits only the built `dist/manifest.json` —
+   never `src/manifest.json`, so the store zip `/publish-chrome-extension`
+   uploads stays exactly as it is today.
+
+6. **Confirm the output.** Verify `dist/manifest.json` exists and report the
    stamped `version` (and `version_name`).
 
 ## Report
@@ -130,8 +151,19 @@ took; only the commit proves *what* it reloaded.
 
 ## Notes
 
-- The unpacked build and the Web Store build are separate installs with
-  separate IDs — this touches only the unpacked dev copy.
+- The unpacked build and the Web Store build are separate installs that now
+  share one **ID**, because step 5 pins it (see there for why). Consequences:
+  Chrome refuses to load the unpacked build in a profile that already has the
+  store build installed — remove one or use a separate profile; and the first
+  build after this pin was introduced changes the dev install's ID, so Chrome
+  treats it as a new extension: **Remove** the old unpacked card and **Load
+  unpacked** the same `dist/` folder again. Reload alone won't do it.
+- The `key` is the store item's **public** key, lifted from the published CRX
+  (`Cr24` header) — not a signing secret, and safe in a public repo. Re-derive
+  it by downloading the item from `clients2.google.com/service/update2/crx` and
+  reading the public key out of the CRX3 header; SHA-256 of those bytes,
+  first 16 bytes hex-mapped `0-f` → `a-p`, must equal
+  `fnodahfcecappofoiphcdfcabbpaahla`.
 - The stamped dev version (`X.Y.Z.<N>`) lives **only** in the built
   `dist/manifest.json`; `src/manifest.json` stays at the real release version.
   The `<N>` counter is a per-machine convenience in

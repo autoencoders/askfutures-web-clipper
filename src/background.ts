@@ -23,6 +23,8 @@ import {
   ASKFUTURES_ORIGIN,
   ChartContext,
   Clip,
+  continuousTicker,
+  isDatedContract,
   isHttpUrl,
   MAX_CLIP_BYTES,
   PdfExtractOutcome,
@@ -995,11 +997,18 @@ async function scrapeChartContext(
   const outcome = injection.result;
   const scrape = outcome?.ok ? outcome.scrape : null;
   const url = tab.url ?? '';
+  // The symbol as the site writes it. Tradovate writes a dated contract, which
+  // askfutures.com does not accept, so `ticker` carries the continuous form and
+  // `contract` keeps the dated one (see continuousTicker). Converting here and
+  // not in the scraper is deliberate: tradovate.ts matches this exact string
+  // against the persisted workspace to recover indicator parameters.
+  const symbol = site.tickerFromUrl(url) ?? scrape?.ticker ?? null;
   return {
     v: 1,
     source: site.source,
     source_url: url,
-    ticker: site.tickerFromUrl(url) ?? scrape?.ticker ?? null,
+    ticker: continuousTicker(symbol),
+    contract: isDatedContract(symbol) ? symbol : null,
     timeframe: scrape?.timeframe ?? null,
     last_close: scrape?.ohlc?.close ?? site.lastPriceFromTitle(tab.title),
     ohlc: scrape?.ohlc ?? null,

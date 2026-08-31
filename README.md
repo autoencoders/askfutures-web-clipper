@@ -33,9 +33,10 @@ the toolbar click itself is the confirmation: the clip goes straight to
 `/analyze`. Text-layer PDFs only; scanned (image-only) PDFs aren't supported —
 there's no OCR — and fail with a clear message in the button's hover title.
 
-**Guided research tour.** From the side panel's *Research tour* view (an
-askfutures.com page — the extension holds no tokens and calls no APIs), you
-can search for strategy sources and walk through the candidates one by one:
+**Guided research tour.** From `askfutures.com/research-tour` (an askfutures.com
+page — the extension holds no tokens and calls no APIs), opened in a tab with
+the side panel open, you can search for strategy sources and walk through the
+candidates one by one:
 the extension opens each candidate in the tab next to the panel, you eyeball
 it, and clicking the toolbar button captures it — same in-browser extraction
 as a regular clip, delivered back to the tour page tagged with the candidate
@@ -51,7 +52,11 @@ an unreadable page) report the reason instead of silently disappearing.
 [ninjatrader.com](https://ninjatrader.com), and
 [cmegroup.com](https://cmegroup.com) — the toolbar button doesn't clip.
 It opens askfutures.com in Chrome's side panel instead, so the chart and
-AskFutures sit side by side in the same window. On gocharting.com,
+AskFutures sit side by side in the same window. The panel's header has two
+tabs: *Sessions* and *Strategy Reconciliation* — the latter is
+`askfutures.com/trading/reconcile`, the live positions your broker holds
+against what each live strategy believes, with its kill switches, next to the
+chart it is trading. On gocharting.com,
 tradingview.com and tradovate.com the panel also passes the chart's context
 into askfutures.com — ticker, timeframe, the indicators on the chart with their
 last values, and the last price — as a snapshot at panel open, refreshable on

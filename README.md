@@ -52,7 +52,9 @@ an unreadable page) report the reason instead of silently disappearing.
 [ninjatrader.com](https://ninjatrader.com), and
 [cmegroup.com](https://cmegroup.com) — the toolbar button doesn't clip.
 It opens askfutures.com in Chrome's side panel instead, so the chart and
-AskFutures sit side by side in the same window. The panel's header has two
+AskFutures sit side by side in the same window. The panel belongs to that
+tab: switch to another tab and it stays behind, so the toolbar button there
+still clips the page you're reading. The panel's header has two
 tabs: *Sessions* and *Strategy Reconciliation* — the latter is
 `askfutures.com/trading/reconcile`, the live positions your broker holds
 against what each live strategy believes, with its kill switches, next to the

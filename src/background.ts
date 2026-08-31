@@ -56,6 +56,17 @@ chrome.action.onClicked.addListener((tab) => {
   // it does not survive an await, so this branch stays synchronous. The
   // chrome.sidePanel guard falls back to the clip flow on Chrome < 114.
   if (tab.id !== undefined && isSidePanelUrl(tab.url) && chrome.sidePanel) {
+    // Scope the panel to this tab before opening it. Without tab-specific
+    // options Chrome opens the *global* panel, which then rides along into
+    // every other tab the user visits — a Gmail or YouTube tab would keep
+    // showing a panel meant for the chart underneath it. Fire-and-forget so
+    // the gesture survives; extension API calls are dispatched in the order
+    // they are made, so the options land before the open.
+    void chrome.sidePanel.setOptions({
+      tabId: tab.id,
+      path: PANEL_PATH,
+      enabled: true,
+    });
     void chrome.sidePanel.open({ tabId: tab.id });
     // If a panel is already open for this tab, nudge it to re-scrape the
     // chart — the toolbar click doubles as a refresh. A just-opened panel has
@@ -72,6 +83,29 @@ chrome.action.onClicked.addListener((tab) => {
   }
   void handleClick(tab);
 });
+
+// The panel document, and the default that keeps it tab-scoped. Chrome's
+// side panel is global by default: opened once, it follows the user into
+// every tab. The extension wants the opposite — the panel belongs to the
+// chart tab it was opened over — so the global default is switched off and
+// the panel is enabled per tab, on the click that opens it. Tab-specific
+// options die with the tab, and this worker never reads another tab's URL
+// (it has no "tabs" permission), so the click is the only place that can
+// decide a tab deserves the panel.
+const PANEL_PATH = 'sidepanel.html';
+
+function disableGlobalPanel(): void {
+  if (!chrome.sidePanel) return;
+  // Not awaited by callers: idempotent, and nothing downstream depends on it.
+  void chrome.sidePanel.setOptions({ enabled: false }).catch(() => {});
+}
+
+chrome.runtime.onInstalled.addListener(disableGlobalPanel);
+chrome.runtime.onStartup.addListener(disableGlobalPanel);
+// Also on every worker start: the install/update and browser-start events
+// only fire once each, and the invariant has to hold for a profile that was
+// already running when the extension last woke.
+disableGlobalPanel();
 
 function isSidePanelUrl(url: string | undefined): boolean {
   if (!url) return false;

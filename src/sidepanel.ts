@@ -48,9 +48,8 @@ iframe.addEventListener('load', () => {
 
 // The service worker pings when the toolbar is clicked on a chart tab. That
 // click is the authoritative "scrape this tab" signal, so re-bind to it and
-// refresh — Chrome reuses one panel across tab switches without reloading it,
-// so the tab captured at load (init) can otherwise go stale (e.g. the panel
-// was first opened next to a different tab).
+// refresh — Chrome may reuse a panel document without reloading it, so the
+// tab captured at load (init) can otherwise go stale.
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === RUNTIME_MSG.chartContextPing && typeof message.tabId === 'number') {
     chartTabId = message.tabId;

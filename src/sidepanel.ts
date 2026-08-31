@@ -13,20 +13,18 @@
 // the page has to read theme off the message and style itself. See
 // design/tradovate-chart-context.md § "Matching the site's look".
 //
-// The panel also hosts the guided research tour: the header's toggle points
-// the iframe at askfutures.com/research-tour, whose page owns all tour state
-// and API calls (the extension never holds tokens). The panel's only tour
-// duties are registering which tab it sits next to — the tab the service
-// worker navigates to each candidate — and swapping the iframe src. The tour
-// page's capture messages travel through the tour content script inside the
-// iframe, not through this page.
+// The header's tabs are the panel's only other chrome: they swap the iframe
+// between askfutures.com/sessions and the live-trading positions page,
+// askfutures.com/trading/reconcile. Both pages own all of their own state and
+// API calls — the extension never holds tokens, and there is nothing here
+// that knows what a position or a strategy is.
 
 import {
   ASKFUTURES_ORIGIN,
   ChartContext,
   ChartTheme,
   PAGE_MSG,
-  RESEARCH_TOUR_URL,
+  RECONCILE_URL,
   RUNTIME_MSG,
   SESSIONS_URL,
   STORAGE_KEY_PANEL_TAB,
@@ -73,12 +71,12 @@ async function registerPanelTab(): Promise<void> {
   await chrome.storage.session.set({ [STORAGE_KEY_PANEL_TAB]: chartTabId });
 }
 
-// The header toggle swaps the iframe between the regular askfutures.com view
-// and the tour page. Plain src assignment: each view is a fresh document, and
-// the tour page re-announces itself to the tour content script on mount.
+// The header tabs swap the iframe between the panel's views. Plain src
+// assignment: each view is a fresh document, which is what lets the chart
+// bridge below re-post its snapshot on the iframe's load event.
 const NAV_VIEWS: Record<string, string> = {
   sessions: SESSIONS_URL,
-  tour: RESEARCH_TOUR_URL,
+  reconcile: RECONCILE_URL,
 };
 
 for (const button of document.querySelectorAll<HTMLButtonElement>('button[data-view]')) {

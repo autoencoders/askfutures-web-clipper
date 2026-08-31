@@ -6,8 +6,11 @@
 export const ASKFUTURES_ORIGIN = 'https://askfutures.com';
 export const ANALYZE_URL = `${ASKFUTURES_ORIGIN}/analyze`;
 export const ANALYZE_URL_PATTERN = `${ASKFUTURES_ORIGIN}/analyze*`;
-export const RESEARCH_TOUR_URL = `${ASKFUTURES_ORIGIN}/research-tour`;
 export const SESSIONS_URL = `${ASKFUTURES_ORIGIN}/sessions`;
+// The live-trading positions page — what the broker holds against what each
+// live strategy believes, with every kill switch. The side panel's second
+// view; the page owns all of its own state and auth, as every panel view does.
+export const RECONCILE_URL = `${ASKFUTURES_ORIGIN}/trading/reconcile`;
 
 export const MAX_CLIP_BYTES = 2 * 1024 * 1024;
 

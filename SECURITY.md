@@ -191,12 +191,13 @@ than `scraped_at` by any amount. Treat a null `bar_time` alongside a null
 
 ## The research-tour messages
 
-The guided research tour runs `https://askfutures.com/research-tour` inside the
-side panel's iframe. That page owns every API call and all tour state — the
-extension never holds tokens. The extension's tour content script (injected
-only on `/research-tour`, including in the panel's iframe) shares the page's
-window and speaks the same kind of handshake as the clip contract, extended
-with candidate tags:
+The guided research tour runs `https://askfutures.com/research-tour`, opened in
+a tab alongside an open side panel (the panel is no longer a view onto it, but
+the worker still refuses a capture unless a panel document exists — see below).
+That page owns every API call and all tour state — the extension never holds
+tokens. The extension's tour content script (injected only on
+`/research-tour`) shares the page's window and speaks the same kind of
+handshake as the clip contract, extended with candidate tags:
 
 ```
 page       → { type: "askfutures-tour-ready" }

@@ -4,8 +4,9 @@
      charting sites in SIDE_PANEL_DOMAINS the toolbar click opens this instead
      of clipping). sidepanel.js bridges chart context (ticker, timeframe,
      indicators, last values) from the chart tab into the iframe, and the
-     header's toggle swaps the iframe to askfutures.com/research-tour for the
-     guided research tour (the tour page owns all tour state — the panel
+     header's tabs swap the iframe between askfutures.com/sessions and
+     askfutures.com/trading/reconcile — the live positions the chart next door
+     is being traded against (each page owns all of its own state; the panel
      chrome stays this one slim bar). Whether the panel loads at all is the
      site's call, not the extension's: Chrome renders its own "refused to
      connect" page unless askfutures.com serves a frame-ancestors naming this
@@ -87,7 +88,7 @@
   <body>
     <nav>
       <button type="button" data-view="sessions" class="active">Sessions</button>
-      <button type="button" data-view="tour">Research tour</button>
+      <button type="button" data-view="reconcile">Strategy Reconciliation</button>
     </nav>
     <iframe src="https://askfutures.com/sessions" title="AskFutures" allow="clipboard-write"></iframe>
     <script src="sidepanel.js"></script>

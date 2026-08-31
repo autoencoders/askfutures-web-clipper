@@ -71,7 +71,11 @@ The extension refuses payloads over 2 MB.
 ## The chart-context messages (side panel)
 
 On charting sites the toolbar click opens askfutures.com in the extension's
-side panel instead of clipping. There, the panel page scrapes a snapshot of
+side panel instead of clipping. The panel is scoped to the tab it was opened
+over (`sidePanel.setOptions({ tabId, enabled: true })`, with the global
+default switched off), so it does not follow the user into other tabs — a tab
+that never asked for the panel never shows it, and the toolbar button keeps
+its ordinary clip behaviour there. There, the panel page scrapes a snapshot of
 the chart next to it — ticker, timeframe, indicators with their last values,
 last price — and posts it into the askfutures.com iframe:
 

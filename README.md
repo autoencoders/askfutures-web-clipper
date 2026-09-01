@@ -55,7 +55,7 @@ It opens askfutures.com in Chrome's side panel instead, so the chart and
 AskFutures sit side by side in the same window. The panel belongs to that
 tab: switch to another tab and it stays behind, so the toolbar button there
 still clips the page you're reading. The panel's header has two
-tabs: *Sessions* and *Strategy Reconciliation* — the latter is
+tabs: *Backtests* and *AutoX* — the latter is
 `askfutures.com/trading/reconcile`, the live positions your broker holds
 against what each live strategy believes, with its kill switches, next to the
 chart it is trading. On gocharting.com,
